@@ -260,7 +260,11 @@ function setupMapLayers() {
     , e.features[0]);
 
     // 원본 allBuildings에서 id로 찾아서 전체 geometry 사용
-    const original = allBuildings.features.find(f => f.id === clicked.id);
+const center = clicked.properties._center;
+const original = allBuildings.features.find(f => 
+    f.properties._center === center ||
+    JSON.stringify(f.properties._center) === center
+);
     openBuildingPopup(original || clicked, e.lngLat);
   });
 
