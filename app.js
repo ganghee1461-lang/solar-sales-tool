@@ -108,26 +108,20 @@ function setLoading(text) {
 
 // ============ 건물 데이터 로드 ============
 async function loadBuildings() {
-  setLoading('건물 데이터 로드 중... (42MB)');
+  setLoading('건물 데이터 로드 중...');
   try {
     const res = await fetch(BUILDINGS_URL);
     const data = await res.json();
 
-    // 시도 추출 + 좌표 계산
     const sidoSet = new Set();
     data.features.forEach((f, i) => {
       f.id = i;
       f.properties.capacity = (f.properties.area * filters.utilization * filters.kwPerSqm);
-
-      // 중심점 계산
       const bbox = turf.bbox(f);
       f.properties._center = [(bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2];
-
-      // 시도 추측 (위경도 기반)
-      const sido = guessSido(f.properties._center);
+      const sido = f.properties.sido || guessSido(f.properties._center);
       f.properties.sido = sido;
       if (sido) sidoSet.add(sido);
-
       f.properties.installed = false;
     });
 
@@ -144,10 +138,8 @@ async function loadBuildings() {
   }
 }
 
-// 위경도로 시도 추측 (간단한 BBox 기반)
 function guessSido(coord) {
   const [lng, lat] = coord;
-  // 대도시 우선 체크 (좁은 영역)
   if (lng >= 126.74 && lng <= 127.18 && lat >= 37.41 && lat <= 37.71) return '서울';
   if (lng >= 128.78 && lng <= 129.30 && lat >= 35.04 && lat <= 35.39) return '부산';
   if (lng >= 128.45 && lng <= 128.76 && lat >= 35.78 && lat <= 36.01) return '대구';
@@ -181,7 +173,8 @@ function populateSidoFilter(sidos) {
 function setupMapLayers() {
   map.addSource('buildings', {
     type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] }
+    data: { type: 'FeatureCollection', features: [] },
+    promoteId: 'id'
   });
 
   map.addLayer({
@@ -210,11 +203,10 @@ function setupMapLayers() {
         ['==', ['get', 'KIND'], 'BDK005'], '#10b981',
         '#3b82f6'
       ],
-      'line-width': 1.5,
+      'line-width': 1,
     }
   });
 
-  // 선택된 건물 강조
   map.addSource('selected', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] }
@@ -226,7 +218,6 @@ function setupMapLayers() {
     paint: { 'line-color': '#fbbf24', 'line-width': 3 }
   });
 
-  // 태양광 포인트
   map.addSource('solar', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] }
@@ -243,7 +234,6 @@ function setupMapLayers() {
     }
   });
 
-  // 주차장 폴리곤
   map.addSource('parking', {
     type: 'geojson',
     data: { type: 'FeatureCollection', features: [] }
@@ -262,44 +252,22 @@ function setupMapLayers() {
     }
   });
 
-  // POI 라벨
-  map.addSource('poi', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] }
-  });
-  map.addLayer({
-    id: 'poi-labels',
-    type: 'symbol',
-    source: 'poi',
-    layout: {
-      'text-field': ['get', 'name'],
-      'text-size': 11,
-      'text-offset': [0, 1],
-      'text-anchor': 'top',
-      'text-font': ['Noto Sans CJK KR Regular'],
-    },
-    paint: {
-      'text-color': '#fbbf24',
-      'text-halo-color': '#000',
-      'text-halo-width': 1.5,
-    }
-  });
-
-  // 클릭 이벤트
+  // 클릭 이벤트 - 원본 데이터에서 찾아서 전체 폴리곤 강조
   map.on('click', 'buildings-fill', e => {
     if (!e.features.length) return;
-    const f = e.features[0];
-    openBuildingPopup(f, e.lngLat);
+    const clicked = e.features.reduce((max, f) =>
+      f.properties.area > max.properties.area ? f : max
+    , e.features[0]);
+
+    // 원본 allBuildings에서 id로 찾아서 전체 geometry 사용
+    const original = allBuildings.features.find(f => f.id === clicked.id);
+    openBuildingPopup(original || clicked, e.lngLat);
   });
 
   map.on('mouseenter', 'buildings-fill', () => map.getCanvas().style.cursor = 'pointer');
   map.on('mouseleave', 'buildings-fill', () => map.getCanvas().style.cursor = '');
 
-  // 줌 변경 시 POI 로드
   map.on('moveend', debounce(() => {
-    if (document.getElementById('layerPOI').checked && map.getZoom() >= 13) {
-      loadPOIInView();
-    }
     if (document.getElementById('layerSolar').checked && map.getZoom() >= 11) {
       loadSolarInView();
     }
@@ -330,7 +298,6 @@ function applyFilters() {
     return true;
   });
 
-  // 지도에 표시
   map.getSource('buildings').setData({
     type: 'FeatureCollection',
     features: filteredBuildings,
@@ -343,11 +310,9 @@ function renderResultsList() {
   const list = document.getElementById('resultsList');
   const count = document.getElementById('resultCount');
 
-  // 용량순 정렬
   const sorted = [...filteredBuildings].sort((a, b) => b.properties.capacity - a.properties.capacity);
   count.textContent = sorted.length.toLocaleString();
 
-  // 최대 200개만 (성능)
   const items = sorted.slice(0, 200);
 
   list.innerHTML = items.map(f => {
@@ -385,8 +350,6 @@ function flyToBuilding(f) {
   const [lng, lat] = f.properties._center;
   map.flyTo({ center: [lng, lat], zoom: 17, speed: 1.5 });
   currentFeatureId = f.id;
-
-  // 강조
   map.getSource('selected').setData({
     type: 'FeatureCollection',
     features: [f]
@@ -500,8 +463,6 @@ async function loadSolarInView() {
         properties: p,
       }))
     });
-
-    // Point-in-Polygon으로 기설치 매칭
     markInstalledBuildings();
   } catch (e) {
     console.error('solar load fail', e);
@@ -512,7 +473,6 @@ function markInstalledBuildings() {
   if (!allBuildings || !solarPoints.length) return;
   const b = map.getBounds();
 
-  // 화면 안 건물만
   allBuildings.features.forEach(f => {
     const [lng, lat] = f.properties._center;
     if (lng < b.getWest() || lng > b.getEast() || lat < b.getSouth() || lat > b.getNorth()) return;
@@ -540,29 +500,6 @@ async function loadParkingInView() {
       map.getSource('parking').setData({ type: 'FeatureCollection', features: parkingPolys });
     }
   } catch (e) { console.error('parking fail', e); }
-}
-
-// 브이월드 POI 검색 - 직접 호출 (CORS 허용)
-async function loadPOIInView() {
-  const b = map.getBounds();
-  try {
-    const url = `https://api.vworld.kr/req/data?service=data&version=2.0&request=GetFeature&format=json&size=100&page=1&data=LP_PA_CBND_BUBUN&key=${VWORLD_KEY}&geomFilter=BOX(${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()})`;
-
-    // 브이월드는 POI를 일반 검색으로
-    const poiUrl = `https://api.vworld.kr/req/search?service=search&request=search&version=2.0&crs=EPSG:4326&size=100&page=1&type=PLACE&key=${VWORLD_KEY}&bbox=${b.getWest()},${b.getSouth()},${b.getEast()},${b.getNorth()}&query=공장`;
-
-    const res = await fetch(poiUrl);
-    const data = await res.json();
-
-    if (data.response?.result?.items) {
-      const features = data.response.result.items.map(item => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [parseFloat(item.point.x), parseFloat(item.point.y)] },
-        properties: { name: item.title }
-      }));
-      map.getSource('poi').setData({ type: 'FeatureCollection', features });
-    }
-  } catch (e) { console.error('poi fail', e); }
 }
 
 // ============ 이벤트 바인딩 ============
@@ -604,13 +541,11 @@ kwSlider.addEventListener('input', e => {
 document.getElementById('exportBtn').addEventListener('click', exportToExcel);
 
 document.getElementById('bookmarkBtn').addEventListener('click', () => {
-  // 북마크된 것만 보기 토글
   const ids = Object.keys(bookmarks).map(Number);
   if (!ids.length) {
     toast('북마크가 없습니다');
     return;
   }
-  const list = document.getElementById('resultsList');
   const items = allBuildings.features.filter(f => ids.includes(f.id));
   filteredBuildings = items;
   map.getSource('buildings').setData({ type: 'FeatureCollection', features: items });
@@ -618,7 +553,6 @@ document.getElementById('bookmarkBtn').addEventListener('click', () => {
   toast(`북마크 ${items.length}건 표시`);
 });
 
-// 지도 타입 토글
 document.querySelectorAll('.map-type-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.map-type-btn').forEach(b => b.classList.remove('active'));
@@ -638,7 +572,6 @@ document.querySelectorAll('.map-type-btn').forEach(btn => {
   });
 });
 
-// 레이어 토글
 document.getElementById('layerBuildings').addEventListener('change', e => {
   map.setLayoutProperty('buildings-fill', 'visibility', e.target.checked ? 'visible' : 'none');
   map.setLayoutProperty('buildings-line', 'visibility', e.target.checked ? 'visible' : 'none');
@@ -650,10 +583,6 @@ document.getElementById('layerSolar').addEventListener('change', e => {
 document.getElementById('layerParking').addEventListener('change', e => {
   map.setLayoutProperty('parking-fill', 'visibility', e.target.checked ? 'visible' : 'none');
   if (e.target.checked) loadParkingInView();
-});
-document.getElementById('layerPOI').addEventListener('change', e => {
-  map.setLayoutProperty('poi-labels', 'visibility', e.target.checked ? 'visible' : 'none');
-  if (e.target.checked) loadPOIInView();
 });
 
 // ============ 시작 ============
