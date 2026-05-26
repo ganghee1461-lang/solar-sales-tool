@@ -4,7 +4,7 @@ export async function onRequest(context) {
   const page = url.searchParams.get('page') || '1';
 
   try {
-    const apiUrl = `https://api.data.go.kr/openapi/tn_pubr_prkplce_info_api?serviceKey=${SERVICE_KEY}&pageNo=${page}&numOfRows=1000&type=json&prkplceType=노외`;
+    const apiUrl = `http://api.data.go.kr/openapi/tn_pubr_prkplce_info_api?serviceKey=${SERVICE_KEY}&pageNo=${page}&numOfRows=1000&type=json&prkplceType=노외`;
     const res = await fetch(apiUrl);
     const data = await res.json();
     const items = data.response?.body?.items || [];
