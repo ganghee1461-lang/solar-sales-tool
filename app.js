@@ -1,48 +1,55 @@
 // ============ 설정 ============
-const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';
+const VWORLD_KEY = 'B1583C8F-3511-30DD-BAD0-C5278FF4351E';
 const BUILDINGS_URL = 'buildings.geojson';
 const SOLAR_API = '/.netlify/functions/solar';
 const PARKING_API = '/.netlify/functions/parking';
+const MIN_AREA = 3000;
 
 // ============ 전역 상태 ============
 let allBuildings = null;
 let filteredBuildings = [];
+let allParkings = [];
+let filteredParkings = [];
 let solarPoints = [];
-let parkingPolys = [];
-let bookmarks = JSON.parse(localStorage.getItem('bookmarks') || '{}');
-let memos = JSON.parse(localStorage.getItem('memos') || '{}');
-let currentFeatureId = null;
+let bookmarks = JSON.parse(localStorage.getItem('bookmarks_v2') || '{}');
+let memos = JSON.parse(localStorage.getItem('memos_v2') || '{}');
+let names = JSON.parse(localStorage.getItem('names_v2') || '{}');
+let currentKey = null;
+let currentTab = 'building';
+let sortDesc = true;
+let solarLoaded = false;
+let parkingLoaded = false;
+let currentAddrTarget = null;
 
-// 필터 상태
 let filters = {
   sido: '',
-  kind: '',
-  minCapacity: 300,
+  minCapacity: 100,
   utilization: 0.5,
   kwPerSqm: 0.1,
 };
 
 const SIDO_CENTERS = {
-  '서울': [126.978, 37.566, 11],
-  '부산': [129.075, 35.179, 11],
-  '대구': [128.601, 35.871, 11],
-  '인천': [126.705, 37.456, 11],
-  '광주': [126.852, 35.160, 11],
-  '대전': [127.385, 36.350, 11],
-  '울산': [129.311, 35.539, 11],
-  '세종': [127.288, 36.480, 11],
-  '경기': [127.108, 37.412, 9],
-  '강원특별자치도': [128.155, 37.821, 8],
-  '충북': [127.490, 36.628, 9],
-  '충남': [126.800, 36.658, 9],
-  '전북특별자치도': [127.108, 35.716, 9],
-  '전남': [126.991, 34.819, 9],
-  '경북': [128.890, 36.248, 8],
-  '경남': [128.213, 35.460, 9],
+  '서울': [126.978, 37.566, 11], '부산': [129.075, 35.179, 11],
+  '대구': [128.601, 35.871, 11], '인천': [126.705, 37.456, 11],
+  '광주': [126.852, 35.160, 11], '대전': [127.385, 36.350, 11],
+  '울산': [129.311, 35.539, 11], '세종': [127.288, 36.480, 11],
+  '경기': [127.108, 37.412, 9], '강원특별자치도': [128.155, 37.821, 8],
+  '충북': [127.490, 36.628, 9], '충남': [126.800, 36.658, 9],
+  '전북특별자치도': [127.108, 35.716, 9], '전남': [126.991, 34.819, 9],
+  '경북': [128.890, 36.248, 8], '경남': [128.213, 35.460, 9],
   '제주': [126.500, 33.400, 10],
 };
 
-// ============ 지도 초기화 ============
+// ============ 좌표 키 (안정적인 식별자) ============
+function getKey(item) {
+  if (item.properties) {
+    const c = item.properties._center;
+    return Array.isArray(c) ? c.join(',') : c;
+  }
+  return `p_${item.no}`; // 주차장
+}
+
+// ============ 지도 ============
 const baseMapStyle = {
   version: 8,
   sources: {
@@ -86,7 +93,7 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-// ============ 토스트 ============
+// ============ UI 헬퍼 ============
 function toast(msg, ms = 2000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -95,7 +102,6 @@ function toast(msg, ms = 2000) {
   t._timer = setTimeout(() => t.classList.remove('show'), ms);
 }
 
-// ============ 로딩 ============
 function setLoading(text) {
   const el = document.getElementById('loading');
   if (text) {
@@ -106,7 +112,15 @@ function setLoading(text) {
   }
 }
 
-// ============ 건물 데이터 로드 ============
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+// ============ 건물 로드 ============
 async function loadBuildings() {
   setLoading('건물 데이터 로드 중...');
   try {
@@ -116,9 +130,9 @@ async function loadBuildings() {
     const sidoSet = new Set();
     data.features.forEach((f, i) => {
       f.id = i;
-      f.properties.capacity = (f.properties.area * filters.utilization * filters.kwPerSqm);
       const bbox = turf.bbox(f);
       f.properties._center = [(bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2];
+      f.properties.capacity = (f.properties.area * filters.utilization * filters.kwPerSqm);
       const sido = f.properties.sido || guessSido(f.properties._center);
       f.properties.sido = sido;
       if (sido) sidoSet.add(sido);
@@ -132,7 +146,6 @@ async function loadBuildings() {
     setLoading(null);
     toast(`${data.features.length.toLocaleString()}개 건물 로드 완료`);
   } catch (e) {
-    console.error(e);
     setLoading(null);
     toast('데이터 로드 실패: ' + e.message, 4000);
   }
@@ -164,7 +177,8 @@ function populateSidoFilter(sidos) {
   const sel = document.getElementById('sidoFilter');
   sidos.forEach(s => {
     const o = document.createElement('option');
-    o.value = s; o.textContent = s.replace('특별자치도', '');
+    o.value = s;
+    o.textContent = s.replace('특별자치도', '');
     sel.appendChild(o);
   });
 }
@@ -173,8 +187,7 @@ function populateSidoFilter(sidos) {
 function setupMapLayers() {
   map.addSource('buildings', {
     type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] },
-    promoteId: 'id'
+    data: { type: 'FeatureCollection', features: [] }
   });
 
   map.addLayer({
@@ -184,11 +197,11 @@ function setupMapLayers() {
     paint: {
       'fill-color': [
         'case',
-        ['get', 'installed'], '#ef4444',
-        ['==', ['get', 'KIND'], 'BDK005'], '#10b981',
-        '#3b82f6'
+        ['get', 'installed'], '#ff3b30',
+        ['==', ['get', 'KIND'], 'BDK005'], '#34c759',
+        '#007aff'
       ],
-      'fill-opacity': 0.5,
+      'fill-opacity': 0.25,
     }
   });
 
@@ -199,94 +212,75 @@ function setupMapLayers() {
     paint: {
       'line-color': [
         'case',
-        ['get', 'installed'], '#ef4444',
-        ['==', ['get', 'KIND'], 'BDK005'], '#10b981',
-        '#3b82f6'
+        ['get', 'installed'], '#ff3b30',
+        ['==', ['get', 'KIND'], 'BDK005'], '#34c759',
+        '#007aff'
       ],
       'line-width': 1,
+      'line-opacity': 0.5,
     }
   });
 
-  map.addSource('selected', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] }
-  });
+  map.addSource('selected', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'selected-outline',
     type: 'line',
     source: 'selected',
-    paint: { 'line-color': '#fbbf24', 'line-width': 3 }
+    paint: { 'line-color': '#ffd60a', 'line-width': 4 }
   });
 
-  map.addSource('solar', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] }
-  });
+  map.addSource('solar', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'solar-points',
     type: 'circle',
     source: 'solar',
     paint: {
       'circle-radius': 5,
-      'circle-color': '#ef4444',
+      'circle-color': '#ff3b30',
       'circle-stroke-color': '#fff',
       'circle-stroke-width': 1.5,
     }
   });
 
-  map.addSource('parking', {
-    type: 'geojson',
-    data: { type: 'FeatureCollection', features: [] }
-  });
+  map.addSource('parking', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({
     id: 'parking-fill',
     type: 'fill',
     source: 'parking',
-    paint: {
-      'fill-color': [
-        'case',
-        ['get', 'installed'], '#f97316',
-        '#10b981'
-      ],
-      'fill-opacity': 0.4,
-    }
+    paint: { 'fill-color': '#ffcc00', 'fill-opacity': 0.35 }
+  });
+  map.addLayer({
+    id: 'parking-line',
+    type: 'line',
+    source: 'parking',
+    paint: { 'line-color': '#b25e00', 'line-width': 1.5 }
   });
 
-  // 클릭 이벤트 - 원본 데이터에서 찾아서 전체 폴리곤 강조
+  // 건물 클릭
   map.on('click', 'buildings-fill', e => {
     if (!e.features.length) return;
     const clicked = e.features.reduce((max, f) =>
-      f.properties.area > max.properties.area ? f : max
-    , e.features[0]);
-
-    // 원본 allBuildings에서 id로 찾아서 전체 geometry 사용
-const center = clicked.properties._center;
-const original = allBuildings.features.find(f => 
-    f.properties._center === center ||
-    JSON.stringify(f.properties._center) === center
-);
+      f.properties.area > max.properties.area ? f : max, e.features[0]);
+    const center = clicked.properties._center;
+    const original = allBuildings.features.find(f =>
+      f.properties._center === center ||
+      JSON.stringify(f.properties._center) === center
+    );
     openBuildingPopup(original || clicked, e.lngLat);
+  });
+
+  // 주차장 클릭
+  map.on('click', 'parking-fill', e => {
+    if (!e.features.length) return;
+    const f = e.features[0];
+    const parking = allParkings.find(p => p.no === f.properties.no);
+    if (parking) openParkingPopup(parking, e.lngLat);
   });
 
   map.on('mouseenter', 'buildings-fill', () => map.getCanvas().style.cursor = 'pointer');
   map.on('mouseleave', 'buildings-fill', () => map.getCanvas().style.cursor = '');
-
-  map.on('moveend', debounce(() => {
-    if (document.getElementById('layerSolar').checked && map.getZoom() >= 11) {
-      loadSolarInView();
-    }
-    if (document.getElementById('layerParking').checked && map.getZoom() >= 13) {
-      loadParkingInView();
-    }
-  }, 600));
-}
-
-function debounce(fn, ms) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
+  map.on('mouseenter', 'parking-fill', () => map.getCanvas().style.cursor = 'pointer');
+  map.on('mouseleave', 'parking-fill', () => map.getCanvas().style.cursor = '');
 }
 
 // ============ 필터링 ============
@@ -296,8 +290,8 @@ function applyFilters() {
   filteredBuildings = allBuildings.features.filter(f => {
     const p = f.properties;
     p.capacity = (p.area * filters.utilization * filters.kwPerSqm);
+    if (p.area < MIN_AREA) return false;
     if (filters.sido && p.sido !== filters.sido) return false;
-    if (filters.kind && p.KIND !== filters.kind) return false;
     if (p.capacity < filters.minCapacity) return false;
     return true;
   });
@@ -307,158 +301,312 @@ function applyFilters() {
     features: filteredBuildings,
   });
 
-  renderResultsList();
+  if (currentTab === 'building' || currentTab === 'bookmark') renderResultsList();
+  updateCounts();
 }
 
+function updateCounts() {
+  document.getElementById('bldgCount').textContent = filteredBuildings.length.toLocaleString();
+  document.getElementById('prkCount').textContent = filteredParkings.length.toLocaleString();
+  document.getElementById('bmCount').textContent = Object.keys(bookmarks).length.toLocaleString();
+}
+// ============ 결과 리스트 ============
 function renderResultsList() {
   const list = document.getElementById('resultsList');
-  const count = document.getElementById('resultCount');
+  let items = [];
 
-  const sorted = [...filteredBuildings].sort((a, b) => b.properties.capacity - a.properties.capacity);
-  count.textContent = sorted.length.toLocaleString();
+  if (currentTab === 'building') {
+    items = [...filteredBuildings];
+  } else if (currentTab === 'parking') {
+    items = [...filteredParkings];
+  } else if (currentTab === 'bookmark') {
+    const bmKeys = Object.keys(bookmarks);
+    items = [
+      ...(allBuildings?.features.filter(f => bmKeys.includes(getKey(f))) || []),
+      ...allParkings.filter(p => bmKeys.includes(getKey(p)))
+    ];
+  }
 
-  const items = sorted.slice(0, 200);
+  // 정렬
+  items.sort((a, b) => {
+    const va = a.properties ? a.properties.capacity : (a.count || 0);
+    const vb = b.properties ? b.properties.capacity : (b.count || 0);
+    return sortDesc ? vb - va : va - vb;
+  });
 
-  list.innerHTML = items.map(f => {
-    const p = f.properties;
-    const isBookmarked = bookmarks[f.id];
+  const top = items.slice(0, 200);
+  list.innerHTML = top.map(item => renderResultItem(item)).join('');
+  attachResultListeners();
+}
+
+function renderResultItem(item) {
+  const key = getKey(item);
+  const isBldg = !!item.properties;
+  const isBookmarked = bookmarks[key];
+  const name = names[key] || '';
+
+  if (isBldg) {
+    const p = item.properties;
     const kindLabel = p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고';
     const kindClass = p.installed ? 'installed' : (p.KIND === 'BDK005' ? 'bdk005' : '');
     return `
-      <div class="result-item ${currentFeatureId === f.id ? 'active' : ''}" data-id="${f.id}">
+      <div class="result-item ${currentKey === key ? 'active' : ''}" data-key="${key}" data-type="building">
+        <div class="result-name">
+          <span class="star ${isBookmarked ? 'active' : ''}" data-action="bookmark">★</span>
+          <input type="text" placeholder="수요처명 입력..." value="${escapeHtml(name)}" data-action="name">
+          <button class="addr-btn" data-action="addr">주소</button>
+        </div>
         <div class="result-row1">
-          <span class="result-capacity">${p.capacity.toFixed(1)} kW ${isBookmarked ? '★' : ''}</span>
+          <span class="result-capacity">${p.capacity.toFixed(1)} kW</span>
           <span class="result-kind ${kindClass}">${p.installed ? '기설치' : kindLabel}</span>
         </div>
         <div class="result-area">${p.area.toLocaleString(undefined, {maximumFractionDigits:0})} ㎡</div>
         <div class="result-sido">${p.sido || '미분류'}</div>
       </div>
     `;
-  }).join('');
-
-  list.querySelectorAll('.result-item').forEach(el => {
-    el.addEventListener('click', () => {
-      const id = +el.dataset.id;
-      const f = filteredBuildings.find(x => x.id === id);
-      if (f) {
-        flyToBuilding(f);
-        openBuildingPopup(f, { lng: f.properties._center[0], lat: f.properties._center[1] });
-      }
-    });
-  });
-
-  updateBookmarkCount();
+  } else {
+    const installed = item.installed;
+    return `
+      <div class="result-item ${currentKey === key ? 'active' : ''}" data-key="${key}" data-type="parking">
+        <div class="result-name">
+          <span class="star ${isBookmarked ? 'active' : ''}" data-action="bookmark">★</span>
+          <input type="text" placeholder="${escapeHtml(item.name)}" value="${escapeHtml(name)}" data-action="name">
+        </div>
+        <div class="result-row1">
+          <span class="result-capacity">${item.count}면</span>
+          <span class="result-kind parking ${installed ? 'installed' : ''}">${installed ? '기설치' : '주차장'}</span>
+        </div>
+        <div class="result-area">${item.roadAddr || item.lotAddr || ''}</div>
+      </div>
+    `;
+  }
 }
 
-function flyToBuilding(f) {
-  const [lng, lat] = f.properties._center;
-  map.flyTo({ center: [lng, lat], zoom: 17, speed: 1.5 });
-  currentFeatureId = f.id;
-  map.getSource('selected').setData({
-    type: 'FeatureCollection',
-    features: [f]
+function escapeHtml(s) {
+  if (!s) return '';
+  return s.replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function attachResultListeners() {
+  document.querySelectorAll('.result-item').forEach(el => {
+    const key = el.dataset.key;
+    const type = el.dataset.type;
+
+    el.addEventListener('click', e => {
+      if (e.target.dataset.action) return;
+      const item = findItemByKey(key, type);
+      if (item) {
+        flyToItem(item);
+        if (type === 'building') openBuildingPopup(item, { lng: item.properties._center[0], lat: item.properties._center[1] });
+        else openParkingPopup(item, { lng: item.lng, lat: item.lat });
+      }
+    });
+
+    el.querySelector('.star')?.addEventListener('click', e => {
+      e.stopPropagation();
+      toggleBookmark(key);
+    });
+
+    el.querySelector('input[data-action=name]')?.addEventListener('click', e => e.stopPropagation());
+    el.querySelector('input[data-action=name]')?.addEventListener('input', e => {
+      names[key] = e.target.value;
+      localStorage.setItem('names_v2', JSON.stringify(names));
+    });
+
+    el.querySelector('.addr-btn')?.addEventListener('click', e => {
+      e.stopPropagation();
+      openAddrModal(key);
+    });
   });
+}
+
+function findItemByKey(key, type) {
+  if (type === 'building') return allBuildings.features.find(f => getKey(f) === key);
+  return allParkings.find(p => getKey(p) === key);
+}
+
+function flyToItem(item) {
+  const [lng, lat] = item.properties ? item.properties._center : [item.lng, item.lat];
+  map.flyTo({ center: [lng, lat], zoom: 17, speed: 1.5 });
+  currentKey = getKey(item);
+
+  if (item.properties) {
+    const center = item.properties._center;
+    const original = allBuildings.features.find(f =>
+      JSON.stringify(f.properties._center) === JSON.stringify(center)
+    );
+    map.getSource('selected').setData({ type: 'FeatureCollection', features: [original || item] });
+  } else {
+    const feature = allParkings.find(p => p.no === item.no)?.feature;
+    if (feature) map.getSource('selected').setData({ type: 'FeatureCollection', features: [feature] });
+  }
 }
 
 // ============ 팝업 ============
 function openBuildingPopup(f, lngLat) {
   const p = f.properties;
-  currentFeatureId = f.id;
+  const key = getKey(f);
+  currentKey = key;
+  map.getSource('selected').setData({ type: 'FeatureCollection', features: [f] });
 
-  map.getSource('selected').setData({
-    type: 'FeatureCollection',
-    features: [f]
-  });
-
-  const isBookmarked = bookmarks[f.id];
-  const memo = memos[f.id] || '';
+  const isBookmarked = bookmarks[key];
+  const memo = memos[key] || '';
+  const name = names[key] || '';
   const installArea = (p.area * filters.utilization);
   const kindLabel = p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고';
 
   const html = `
-    <div class="popup-title">${p.installed ? '⚠ 기설치 건물' : '○ 영업 가능'} · ${kindLabel}</div>
+    <div class="popup-title">${p.installed ? '⚠ 기설치' : '○ 영업가능'} · ${kindLabel}</div>
+    <div class="popup-name-row">
+      <input type="text" id="popName" placeholder="수요처명" value="${escapeHtml(name)}">
+      <button id="popAddrBtn">주소</button>
+    </div>
     <div class="popup-row"><span>지역</span><strong>${p.sido || '-'}</strong></div>
     <div class="popup-row"><span>전체 면적</span><strong>${p.area.toFixed(0)} ㎡</strong></div>
-    <div class="popup-row"><span>설치 가능 면적</span><strong>${installArea.toFixed(0)} ㎡</strong></div>
-    <div class="popup-row"><span>추정 설비용량</span><strong>${p.capacity.toFixed(1)} kW</strong></div>
+    <div class="popup-row"><span>설치 가능</span><strong>${installArea.toFixed(0)} ㎡</strong></div>
+    <div class="popup-row"><span>추정 용량</span><strong>${p.capacity.toFixed(1)} kW</strong></div>
     <div class="popup-actions">
-      <button id="bmToggle" class="${isBookmarked ? 'active' : ''}">★ ${isBookmarked ? '북마크 해제' : '북마크'}</button>
+      <button id="popBm" class="${isBookmarked ? 'active' : ''}">★ ${isBookmarked ? '해제' : '북마크'}</button>
     </div>
-    <textarea class="popup-memo" id="memoInput" placeholder="메모 입력...">${memo}</textarea>
+    <textarea class="popup-memo" id="popMemo" placeholder="메모...">${escapeHtml(memo)}</textarea>
   `;
 
   new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
-    .setLngLat(lngLat)
-    .setHTML(html)
-    .addTo(map);
+    .setLngLat(lngLat).setHTML(html).addTo(map);
 
-  setTimeout(() => {
-    const bm = document.getElementById('bmToggle');
-    const memo = document.getElementById('memoInput');
-    if (bm) bm.addEventListener('click', () => toggleBookmark(f.id));
-    if (memo) memo.addEventListener('input', e => {
-      memos[f.id] = e.target.value;
-      localStorage.setItem('memos', JSON.stringify(memos));
-    });
-  }, 100);
+  setTimeout(() => bindPopupEvents(key), 50);
+}
+
+function openParkingPopup(parking, lngLat) {
+  const key = getKey(parking);
+  currentKey = key;
+
+  const isBookmarked = bookmarks[key];
+  const memo = memos[key] || '';
+  const name = names[key] || '';
+
+  const html = `
+    <div class="popup-title">🅿 주차장 ${parking.installed ? '· ⚠ 기설치' : ''}</div>
+    <div class="popup-name-row">
+      <input type="text" id="popName" placeholder="${escapeHtml(parking.name)}" value="${escapeHtml(name)}">
+      <button id="popAddrBtn">주소</button>
+    </div>
+    <div class="popup-row"><span>주차면수</span><strong>${parking.count}면</strong></div>
+    <div class="popup-row"><span>도로명</span><strong style="font-size:11px">${parking.roadAddr || '-'}</strong></div>
+    <div class="popup-row"><span>지번</span><strong style="font-size:11px">${parking.lotAddr || '-'}</strong></div>
+    <div class="popup-actions">
+      <button id="popBm" class="${isBookmarked ? 'active' : ''}">★ ${isBookmarked ? '해제' : '북마크'}</button>
+    </div>
+    <textarea class="popup-memo" id="popMemo" placeholder="메모...">${escapeHtml(memo)}</textarea>
+  `;
+
+  new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
+    .setLngLat(lngLat).setHTML(html).addTo(map);
+
+  setTimeout(() => bindPopupEvents(key), 50);
+}
+
+function bindPopupEvents(key) {
+  document.getElementById('popBm')?.addEventListener('click', () => {
+    toggleBookmark(key);
+    const btn = document.getElementById('popBm');
+    if (btn) {
+      btn.classList.toggle('active');
+      btn.textContent = bookmarks[key] ? '★ 해제' : '★ 북마크';
+    }
+  });
+  document.getElementById('popMemo')?.addEventListener('input', e => {
+    memos[key] = e.target.value;
+    localStorage.setItem('memos_v2', JSON.stringify(memos));
+  });
+  document.getElementById('popName')?.addEventListener('input', e => {
+    names[key] = e.target.value;
+    localStorage.setItem('names_v2', JSON.stringify(names));
+    renderResultsList();
+  });
+  document.getElementById('popAddrBtn')?.addEventListener('click', () => openAddrModal(key));
 }
 
 // ============ 북마크 ============
-function toggleBookmark(id) {
-  if (bookmarks[id]) delete bookmarks[id];
-  else bookmarks[id] = true;
-  localStorage.setItem('bookmarks', JSON.stringify(bookmarks));
+function toggleBookmark(key) {
+  if (bookmarks[key]) delete bookmarks[key];
+  else bookmarks[key] = true;
+  localStorage.setItem('bookmarks_v2', JSON.stringify(bookmarks));
   renderResultsList();
-  toast(bookmarks[id] ? '북마크 추가' : '북마크 해제');
+  updateCounts();
+  toast(bookmarks[key] ? '북마크 추가' : '북마크 해제');
 }
 
-function updateBookmarkCount() {
-  document.getElementById('bmCount').textContent = Object.keys(bookmarks).length;
+// ============ 주소 검색 모달 ============
+function openAddrModal(key) {
+  currentAddrTarget = key;
+  document.getElementById('addressModal').classList.remove('hidden');
+  document.getElementById('addrSearchInput').value = names[key] || '';
+  document.getElementById('addrResults').innerHTML = '';
 }
 
-// ============ 엑셀 ============
-function exportToExcel() {
-  if (!filteredBuildings.length) {
-    toast('내보낼 데이터가 없습니다');
-    return;
-  }
+async function searchAddress() {
+  const query = document.getElementById('addrSearchInput').value.trim();
+  if (!query) return;
+  const resultsEl = document.getElementById('addrResults');
+  resultsEl.innerHTML = '검색 중...';
 
-  const rows = filteredBuildings.map(f => {
-    const p = f.properties;
-    return {
-      '지역': p.sido || '',
-      '건물유형': p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고',
-      '면적(㎡)': Math.round(p.area),
-      '설치가능면적(㎡)': Math.round(p.area * filters.utilization),
-      '추정설비용량(kW)': +p.capacity.toFixed(1),
-      '기설치여부': p.installed ? 'Y' : 'N',
-      '북마크': bookmarks[f.id] ? 'Y' : 'N',
-      '메모': memos[f.id] || '',
-      '위도': p._center[1].toFixed(6),
-      '경도': p._center[0].toFixed(6),
-    };
-  });
-
-  rows.sort((a, b) => b['추정설비용량(kW)'] - a['추정설비용량(kW)']);
-
-  const ws = XLSX.utils.json_to_sheet(rows);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, '영업타겟');
-  XLSX.writeFile(wb, `solar_targets_${new Date().toISOString().slice(0,10)}.xlsx`);
-  toast(`${rows.length}건 엑셀 다운로드`);
-}
-
-// ============ 외부 API ============
-async function loadSolarInView() {
-  const b = map.getBounds();
   try {
-    const url = `${SOLAR_API}?minLng=${b.getWest()}&minLat=${b.getSouth()}&maxLng=${b.getEast()}&maxLat=${b.getNorth()}`;
+    const url = `https://api.vworld.kr/req/search?service=search&request=search&version=2.0&crs=EPSG:4326&size=10&page=1&type=PLACE&key=${VWORLD_KEY}&query=${encodeURIComponent(query)}`;
     const res = await fetch(url);
-    if (!res.ok) return;
     const data = await res.json();
-    if (!data.points) return;
+    const items = data.response?.result?.items || [];
 
-    solarPoints = data.points;
+    if (!items.length) {
+      resultsEl.innerHTML = '<div style="text-align:center;color:#86868b;padding:20px">검색 결과 없음</div>';
+      return;
+    }
+
+    resultsEl.innerHTML = items.map((item, i) => `
+      <div class="addr-result" data-idx="${i}">
+        <div class="addr-result-title">${escapeHtml(item.title)}</div>
+        <div class="addr-result-addr">${escapeHtml(item.address?.road || item.address?.parcel || '')}</div>
+      </div>
+    `).join('');
+
+    resultsEl.querySelectorAll('.addr-result').forEach((el, i) => {
+      el.addEventListener('click', () => {
+        const item = items[i];
+        names[currentAddrTarget] = item.title;
+        localStorage.setItem('names_v2', JSON.stringify(names));
+        document.getElementById('addressModal').classList.add('hidden');
+        renderResultsList();
+        toast('수요처명 저장됨');
+      });
+    });
+  } catch (e) {
+    resultsEl.innerHTML = '<div style="color:#ff3b30">검색 실패</div>';
+  }
+}
+
+// ============ 태양광 로드 ============
+async function loadAllSolar() {
+  if (solarLoaded) return;
+  setLoading('태양광 데이터 로드 중...');
+  try {
+    const all = [];
+    let page = 1;
+    while (true) {
+      const res = await fetch(`${SOLAR_API}?page=${page}`);
+      const data = await res.json();
+      if (!data.points || !data.points.length) break;
+      all.push(...data.points);
+      const total = data.total || 0;
+      setLoading(`태양광 로드 ${all.length}/${total}`);
+      if (all.length >= total) break;
+      page++;
+      if (page > 200) break;
+    }
+    solarPoints = all;
+    solarLoaded = true;
+    setLoading(null);
+    toast(`태양광 ${all.length}개 로드`);
+
     map.getSource('solar').setData({
       type: 'FeatureCollection',
       features: solarPoints.map(p => ({
@@ -467,43 +615,172 @@ async function loadSolarInView() {
         properties: p,
       }))
     });
-    markInstalledBuildings();
+    matchInstalled();
   } catch (e) {
-    console.error('solar load fail', e);
+    setLoading(null);
+    toast('태양광 로드 실패');
   }
 }
 
-function markInstalledBuildings() {
+function matchInstalled() {
   if (!allBuildings || !solarPoints.length) return;
-  const b = map.getBounds();
-
   allBuildings.features.forEach(f => {
-    const [lng, lat] = f.properties._center;
-    if (lng < b.getWest() || lng > b.getEast() || lat < b.getSouth() || lat > b.getNorth()) return;
-
-    const has = solarPoints.some(p => {
-      try {
-        return turf.booleanPointInPolygon([p.lng, p.lat], f);
-      } catch (e) { return false; }
+    f.properties.installed = solarPoints.some(p => {
+      try { return turf.booleanPointInPolygon([p.lng, p.lat], f); }
+      catch { return false; }
     });
-    if (has) f.properties.installed = true;
   });
-
   applyFilters();
 }
 
-async function loadParkingInView() {
-  const b = map.getBounds();
+// ============ 주차장 로드 ============
+async function loadAllParking() {
+  if (parkingLoaded) return;
+  setLoading('주차장 데이터 로드 중...');
   try {
-    const url = `${PARKING_API}?minLng=${b.getWest()}&minLat=${b.getSouth()}&maxLng=${b.getEast()}&maxLat=${b.getNorth()}`;
-    const res = await fetch(url);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (data.features) {
-      parkingPolys = data.features;
-      map.getSource('parking').setData({ type: 'FeatureCollection', features: parkingPolys });
+    const all = [];
+    let page = 1;
+    while (true) {
+      const res = await fetch(`${PARKING_API}?page=${page}`);
+      const data = await res.json();
+      if (!data.parkings || !data.parkings.length) break;
+      all.push(...data.parkings);
+      const total = data.total || 0;
+      setLoading(`주차장 로드 ${all.length}/${total}`);
+      if (all.length >= total) break;
+      page++;
+      if (page > 50) break;
     }
-  } catch (e) { console.error('parking fail', e); }
+    allParkings = all;
+    parkingLoaded = true;
+    setLoading('주차장 폴리곤 가져오는 중...');
+    await loadParkingPolygons();
+    setLoading(null);
+    toast(`주차장 ${all.length}개 로드`);
+  } catch (e) {
+    setLoading(null);
+    toast('주차장 로드 실패');
+  }
+}
+
+// 위경도 → EPSG:900913 변환
+function toMercator(lng, lat) {
+  const x = lng * 20037508.34 / 180;
+  let y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
+  y = y * 20037508.34 / 180;
+  return [x, y];
+}
+
+async function fetchParkingPolygon(p) {
+  try {
+    const [x, y] = toMercator(p.lng, p.lat);
+    const d = 5;
+    const url = `https://api.vworld.kr/req/wfs?SERVICE=WFS&REQUEST=GetFeature&TYPENAME=lp_pa_cbnd_bonbun&BBOX=${x-d},${y-d},${x+d},${y+d}&VERSION=1.1.0&MAXFEATURES=1&SRSNAME=EPSG:900913&OUTPUT=application/json&KEY=${VWORLD_KEY}`;
+    const res = await fetch(url);
+    const data = await res.json();
+    if (!data.features || !data.features.length) return null;
+    const feat = data.features[0];
+    // Mercator → WGS84 변환
+    feat.geometry = mercatorGeometryToWGS84(feat.geometry);
+    feat.properties = { ...feat.properties, no: p.no };
+    return feat;
+  } catch { return null; }
+}
+
+function mercatorGeometryToWGS84(geom) {
+  const convertCoord = ([x, y]) => {
+    const lng = x / 20037508.34 * 180;
+    let lat = y / 20037508.34 * 180;
+    lat = 180 / Math.PI * (2 * Math.atan(Math.exp(lat * Math.PI / 180)) - Math.PI / 2);
+    return [lng, lat];
+  };
+  const convertRing = ring => ring.map(convertCoord);
+  if (geom.type === 'MultiPolygon') {
+    geom.coordinates = geom.coordinates.map(poly => poly.map(convertRing));
+  } else if (geom.type === 'Polygon') {
+    geom.coordinates = geom.coordinates.map(convertRing);
+  }
+  return geom;
+}
+
+async function loadParkingPolygons() {
+  const features = [];
+  const BATCH = 5;
+  for (let i = 0; i < allParkings.length; i += BATCH) {
+    const batch = allParkings.slice(i, i + BATCH);
+    const results = await Promise.all(batch.map(fetchParkingPolygon));
+    results.forEach((feat, j) => {
+      if (feat) {
+        allParkings[i+j].feature = feat;
+        features.push(feat);
+      }
+    });
+    setLoading(`주차장 폴리곤 ${Math.min(i+BATCH, allParkings.length)}/${allParkings.length}`);
+  }
+  filteredParkings = allParkings.filter(p => p.feature);
+  matchParkingInstalled();
+  map.getSource('parking').setData({ type: 'FeatureCollection', features });
+  updateCounts();
+  if (currentTab === 'parking' || currentTab === 'bookmark') renderResultsList();
+}
+
+function matchParkingInstalled() {
+  if (!solarPoints.length) return;
+  allParkings.forEach(p => {
+    if (!p.feature) return;
+    p.installed = solarPoints.some(sp => {
+      try { return turf.booleanPointInPolygon([sp.lng, sp.lat], p.feature); }
+      catch { return false; }
+    });
+  });
+}
+
+// ============ 엑셀 ============
+function exportToExcel() {
+  let items = [];
+  if (currentTab === 'building') items = filteredBuildings;
+  else if (currentTab === 'parking') items = filteredParkings;
+  else {
+    const keys = Object.keys(bookmarks);
+    items = [
+      ...(allBuildings?.features.filter(f => keys.includes(getKey(f))) || []),
+      ...allParkings.filter(p => keys.includes(getKey(p)))
+    ];
+  }
+
+  if (!items.length) { toast('내보낼 데이터 없음'); return; }
+
+  const rows = items.map(item => {
+    const key = getKey(item);
+    if (item.properties) {
+      const p = item.properties;
+      return {
+        '구분': '지붕형', '수요처명': names[key] || '', '지역': p.sido || '',
+        '건물유형': p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고',
+        '면적(㎡)': Math.round(p.area),
+        '설치가능면적(㎡)': Math.round(p.area * filters.utilization),
+        '추정설비용량(kW)': +p.capacity.toFixed(1),
+        '기설치여부': p.installed ? 'Y' : 'N',
+        '북마크': bookmarks[key] ? 'Y' : 'N',
+        '메모': memos[key] || '',
+        '위도': p._center[1].toFixed(6), '경도': p._center[0].toFixed(6),
+      };
+    } else {
+      return {
+        '구분': '주차장형', '수요처명': names[key] || item.name,
+        '주차면수': item.count, '도로명주소': item.roadAddr || '',
+        '지번주소': item.lotAddr || '', '기설치여부': item.installed ? 'Y' : 'N',
+        '북마크': bookmarks[key] ? 'Y' : 'N', '메모': memos[key] || '',
+        '위도': item.lat, '경도': item.lng,
+      };
+    }
+  });
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '영업타겟');
+  XLSX.writeFile(wb, `solar_targets_${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast(`${rows.length}건 다운로드`);
 }
 
 // ============ 이벤트 바인딩 ============
@@ -516,27 +793,19 @@ document.getElementById('sidoFilter').addEventListener('change', e => {
   }
 });
 
-document.getElementById('kindFilter').addEventListener('change', e => {
-  filters.kind = e.target.value;
-  applyFilters();
-});
-
-const capSlider = document.getElementById('capSlider');
-capSlider.addEventListener('input', e => {
+document.getElementById('capSlider').addEventListener('input', e => {
   filters.minCapacity = +e.target.value;
   document.getElementById('capValue').textContent = `${e.target.value} kW`;
   applyFilters();
 });
 
-const utilSlider = document.getElementById('utilSlider');
-utilSlider.addEventListener('input', e => {
+document.getElementById('utilSlider').addEventListener('input', e => {
   filters.utilization = +e.target.value / 100;
   document.getElementById('utilValue').textContent = `${e.target.value}%`;
   applyFilters();
 });
 
-const kwSlider = document.getElementById('kwSlider');
-kwSlider.addEventListener('input', e => {
+document.getElementById('kwSlider').addEventListener('input', e => {
   filters.kwPerSqm = +e.target.value / 100;
   document.getElementById('kwValue').textContent = `${(e.target.value/100).toFixed(2)} kW`;
   applyFilters();
@@ -544,32 +813,31 @@ kwSlider.addEventListener('input', e => {
 
 document.getElementById('exportBtn').addEventListener('click', exportToExcel);
 
-document.getElementById('bookmarkBtn').addEventListener('click', () => {
-  const ids = Object.keys(bookmarks).map(Number);
-  if (!ids.length) {
-    toast('북마크가 없습니다');
-    return;
-  }
-  const items = allBuildings.features.filter(f => ids.includes(f.id));
-  filteredBuildings = items;
-  map.getSource('buildings').setData({ type: 'FeatureCollection', features: items });
+document.getElementById('sortBtn').addEventListener('click', () => {
+  sortDesc = !sortDesc;
+  document.getElementById('sortBtn').textContent = sortDesc ? '설비용량 ↓' : '설비용량 ↑';
   renderResultsList();
-  toast(`북마크 ${items.length}건 표시`);
+});
+
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentTab = btn.dataset.tab;
+    renderResultsList();
+  });
 });
 
 document.querySelectorAll('.map-type-btn').forEach(btn => {
   btn.addEventListener('click', () => {
     document.querySelectorAll('.map-type-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
-
     const center = map.getCenter();
     const zoom = map.getZoom();
     const newStyle = btn.dataset.type === 'satellite' ? satelliteStyle : baseMapStyle;
     map.setStyle(newStyle);
-
     map.once('styledata', () => {
-      map.setCenter(center);
-      map.setZoom(zoom);
+      map.setCenter(center); map.setZoom(zoom);
       setupMapLayers();
       if (allBuildings) applyFilters();
     });
@@ -577,16 +845,31 @@ document.querySelectorAll('.map-type-btn').forEach(btn => {
 });
 
 document.getElementById('layerBuildings').addEventListener('change', e => {
-  map.setLayoutProperty('buildings-fill', 'visibility', e.target.checked ? 'visible' : 'none');
-  map.setLayoutProperty('buildings-line', 'visibility', e.target.checked ? 'visible' : 'none');
+  const v = e.target.checked ? 'visible' : 'none';
+  map.setLayoutProperty('buildings-fill', 'visibility', v);
+  map.setLayoutProperty('buildings-line', 'visibility', v);
 });
+
 document.getElementById('layerSolar').addEventListener('change', e => {
-  map.setLayoutProperty('solar-points', 'visibility', e.target.checked ? 'visible' : 'none');
-  if (e.target.checked) loadSolarInView();
+  const v = e.target.checked ? 'visible' : 'none';
+  map.setLayoutProperty('solar-points', 'visibility', v);
+  if (e.target.checked && !solarLoaded) loadAllSolar();
 });
+
 document.getElementById('layerParking').addEventListener('change', e => {
-  map.setLayoutProperty('parking-fill', 'visibility', e.target.checked ? 'visible' : 'none');
-  if (e.target.checked) loadParkingInView();
+  const v = e.target.checked ? 'visible' : 'none';
+  map.setLayoutProperty('parking-fill', 'visibility', v);
+  map.setLayoutProperty('parking-line', 'visibility', v);
+  if (e.target.checked && !parkingLoaded) loadAllParking();
+});
+
+document.getElementById('closeAddrModal').addEventListener('click', () => {
+  document.getElementById('addressModal').classList.add('hidden');
+});
+
+document.getElementById('addrSearchBtn').addEventListener('click', searchAddress);
+document.getElementById('addrSearchInput').addEventListener('keypress', e => {
+  if (e.key === 'Enter') searchAddress();
 });
 
 // ============ 시작 ============
