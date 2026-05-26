@@ -1,24 +1,18 @@
-// v2
 // ============ 설정 ============
 const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';
 const BUILDINGS_URL = 'https://pub-9f412c718f774c63833a747a845a8a5c.r2.dev/buildings.geojson';
-const SOLAR_API = '/solar';
-const PARKING_API = '/parking';
 const MIN_AREA = 3000;
 
 // ============ 전역 상태 ============
-let addrs = JSON.parse(localStorage.getItem('addrs_v2') || '{}');
 let allBuildings = null;
 let filteredBuildings = [];
-let allParkings = [];
-let filteredParkings = [];
 let bookmarks = JSON.parse(localStorage.getItem('bookmarks_v2') || '{}');
 let memos = JSON.parse(localStorage.getItem('memos_v2') || '{}');
 let names = JSON.parse(localStorage.getItem('names_v2') || '{}');
+let addrs = JSON.parse(localStorage.getItem('addrs_v2') || '{}');
 let currentKey = null;
 let currentTab = 'building';
 let sortDesc = true;
-let parkingLoaded = false;
 let currentAddrTarget = null;
 
 let filters = {
@@ -40,13 +34,9 @@ const SIDO_CENTERS = {
   '제주': [126.500, 33.400, 10],
 };
 
-// ============ 좌표 키 (안정적인 식별자) ============
-function getKey(item) {
-  if (item.properties) {
-    const c = item.properties._center;
-    return Array.isArray(c) ? c.join(',') : c;
-  }
-  return `p_${item.no}`; // 주차장
+function getKey(f) {
+  const c = f.properties._center;
+  return Array.isArray(c) ? c.join(',') : c;
 }
 
 // ============ 지도 ============
@@ -93,7 +83,6 @@ const map = new maplibregl.Map({
 
 map.addControl(new maplibregl.NavigationControl(), 'bottom-right');
 
-// ============ UI 헬퍼 ============
 function toast(msg, ms = 2000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
@@ -112,12 +101,8 @@ function setLoading(text) {
   }
 }
 
-function debounce(fn, ms) {
-  let t;
-  return (...args) => {
-    clearTimeout(t);
-    t = setTimeout(() => fn(...args), ms);
-  };
+function closeAddrModal() {
+  document.getElementById('addressModal').classList.add('hidden');
 }
 
 // ============ 건물 로드 ============
@@ -133,6 +118,7 @@ async function loadBuildings() {
       const bbox = turf.bbox(f);
       f.properties._center = [(bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2];
       f.properties.capacity = (f.properties.area * filters.utilization * filters.kwPerSqm);
+      f.properties.installed = false;
       const sido = f.properties.sido || guessSido(f.properties._center);
       f.properties.sido = sido;
       if (sido) sidoSet.add(sido);
@@ -196,7 +182,7 @@ function setupMapLayers() {
     paint: {
       'fill-color': [
         'case',
-        ['get', 'installed'], '#ff3b30',
+        ['==', ['get', 'installed'], true], '#ff3b30',
         ['==', ['get', 'KIND'], 'BDK005'], '#34c759',
         '#007aff'
       ],
@@ -211,7 +197,7 @@ function setupMapLayers() {
     paint: {
       'line-color': [
         'case',
-        ['get', 'installed'], '#ff3b30',
+        ['==', ['get', 'installed'], true], '#ff3b30',
         ['==', ['get', 'KIND'], 'BDK005'], '#34c759',
         '#007aff'
       ],
@@ -228,21 +214,6 @@ function setupMapLayers() {
     paint: { 'line-color': '#ffd60a', 'line-width': 4 }
   });
 
-  map.addSource('parking', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'parking-fill',
-    type: 'fill',
-    source: 'parking',
-    paint: { 'fill-color': '#ffcc00', 'fill-opacity': 0.35 }
-  });
-  map.addLayer({
-    id: 'parking-line',
-    type: 'line',
-    source: 'parking',
-    paint: { 'line-color': '#b25e00', 'line-width': 1.5 }
-  });
-
-  // 건물 클릭
   map.on('click', 'buildings-fill', e => {
     if (!e.features.length) return;
     const clicked = e.features.reduce((max, f) =>
@@ -255,18 +226,8 @@ function setupMapLayers() {
     openBuildingPopup(original || clicked, e.lngLat);
   });
 
-  // 주차장 클릭
-  map.on('click', 'parking-fill', e => {
-    if (!e.features.length) return;
-    const f = e.features[0];
-    const parking = allParkings.find(p => p.no === f.properties.no);
-    if (parking) openParkingPopup(parking, e.lngLat);
-  });
-
   map.on('mouseenter', 'buildings-fill', () => map.getCanvas().style.cursor = 'pointer');
   map.on('mouseleave', 'buildings-fill', () => map.getCanvas().style.cursor = '');
-  map.on('mouseenter', 'parking-fill', () => map.getCanvas().style.cursor = 'pointer');
-  map.on('mouseleave', 'parking-fill', () => map.getCanvas().style.cursor = '');
 }
 
 // ============ 필터링 ============
@@ -287,15 +248,15 @@ function applyFilters() {
     features: filteredBuildings,
   });
 
-  if (currentTab === 'building' || currentTab === 'bookmark') renderResultsList();
+  renderResultsList();
   updateCounts();
 }
 
 function updateCounts() {
   document.getElementById('bldgCount').textContent = filteredBuildings.length.toLocaleString();
-  document.getElementById('prkCount').textContent = filteredParkings.length.toLocaleString();
   document.getElementById('bmCount').textContent = Object.keys(bookmarks).length.toLocaleString();
 }
+
 // ============ 결과 리스트 ============
 function renderResultsList() {
   const list = document.getElementById('resultsList');
@@ -303,20 +264,14 @@ function renderResultsList() {
 
   if (currentTab === 'building') {
     items = [...filteredBuildings];
-  } else if (currentTab === 'parking') {
-    items = [...filteredParkings];
   } else if (currentTab === 'bookmark') {
     const bmKeys = Object.keys(bookmarks);
-    items = [
-      ...(allBuildings?.features.filter(f => bmKeys.includes(getKey(f))) || []),
-      ...allParkings.filter(p => bmKeys.includes(getKey(p)))
-    ];
+    items = allBuildings?.features.filter(f => bmKeys.includes(getKey(f))) || [];
   }
 
-  // 정렬
   items.sort((a, b) => {
-    const va = a.properties ? a.properties.capacity : (a.count || 0);
-    const vb = b.properties ? b.properties.capacity : (b.count || 0);
+    const va = a.properties.capacity;
+    const vb = b.properties.capacity;
     return sortDesc ? vb - va : va - vb;
   });
 
@@ -325,47 +280,31 @@ function renderResultsList() {
   attachResultListeners();
 }
 
-function renderResultItem(item) {
-  const key = getKey(item);
-  const isBldg = !!item.properties;
+function renderResultItem(f) {
+  const key = getKey(f);
+  const p = f.properties;
   const isBookmarked = bookmarks[key];
   const name = names[key] || '';
+  const addr = addrs[key] || '';
+  const kindLabel = p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고';
+  const kindClass = p.KIND === 'BDK005' ? 'bdk005' : '';
 
-  if (isBldg) {
-    const p = item.properties;
-    const kindLabel = p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고';
-    const kindClass = p.installed ? 'installed' : (p.KIND === 'BDK005' ? 'bdk005' : '');
-    return `
-      <div class="result-item ${currentKey === key ? 'active' : ''}" data-key="${key}" data-type="building">
-        <div class="result-name">
-          <span class="star ${isBookmarked ? 'active' : ''}" data-action="bookmark">★</span>
-          <input type="text" placeholder="수요처명 입력..." value="${escapeHtml(name)}" data-action="name">
-          <button class="addr-btn" data-action="addr">주소</button>
-        </div>
-        <div class="result-row1">
-          <span class="result-capacity">${p.capacity.toFixed(1)} kW</span>
-          <span class="result-kind ${kindClass}">${p.installed ? '기설치' : kindLabel}</span>
-        </div>
-        <div class="result-area">${p.area.toLocaleString(undefined, {maximumFractionDigits:0})} ㎡</div>
-        <div class="result-sido">${p.sido || '미분류'}</div>
+  return `
+    <div class="result-item ${currentKey === key ? 'active' : ''}" data-key="${key}">
+      <div class="result-name">
+        <span class="star ${isBookmarked ? 'active' : ''}" data-action="bookmark">★</span>
+        <input type="text" placeholder="수요처명 입력..." value="${escapeHtml(name)}" data-action="name">
+        <button class="addr-btn" data-action="addr">주소</button>
       </div>
-    `;
-  } else {
-    const installed = item.installed;
-    return `
-      <div class="result-item ${currentKey === key ? 'active' : ''}" data-key="${key}" data-type="parking">
-        <div class="result-name">
-          <span class="star ${isBookmarked ? 'active' : ''}" data-action="bookmark">★</span>
-          <input type="text" placeholder="${escapeHtml(item.name)}" value="${escapeHtml(name)}" data-action="name">
-        </div>
-        <div class="result-row1">
-          <span class="result-capacity">${item.count}면</span>
-          <span class="result-kind parking ${installed ? 'installed' : ''}">${installed ? '기설치' : '주차장'}</span>
-        </div>
-        <div class="result-area">${item.roadAddr || item.lotAddr || ''}</div>
+      ${addr ? `<div class="result-addr">${escapeHtml(addr)}</div>` : ''}
+      <div class="result-row1">
+        <span class="result-capacity">${p.capacity.toFixed(1)} kW</span>
+        <span class="result-kind ${kindClass}">${kindLabel}</span>
       </div>
-    `;
-  }
+      <div class="result-area">${p.area.toLocaleString(undefined, {maximumFractionDigits:0})} ㎡</div>
+      <div class="result-sido">${p.sido || '미분류'}</div>
+    </div>
+  `;
 }
 
 function escapeHtml(s) {
@@ -376,15 +315,14 @@ function escapeHtml(s) {
 function attachResultListeners() {
   document.querySelectorAll('.result-item').forEach(el => {
     const key = el.dataset.key;
-    const type = el.dataset.type;
 
     el.addEventListener('click', e => {
       if (e.target.dataset.action) return;
-      const item = findItemByKey(key, type);
-      if (item) {
-        flyToItem(item);
-        if (type === 'building') openBuildingPopup(item, { lng: item.properties._center[0], lat: item.properties._center[1] });
-        else openParkingPopup(item, { lng: item.lng, lat: item.lat });
+      const f = allBuildings.features.find(f => getKey(f) === key);
+      if (f) {
+        closeAddrModal();
+        flyToBuilding(f);
+        openBuildingPopup(f, { lng: f.properties._center[0], lat: f.properties._center[1] });
       }
     });
 
@@ -406,26 +344,14 @@ function attachResultListeners() {
   });
 }
 
-function findItemByKey(key, type) {
-  if (type === 'building') return allBuildings.features.find(f => getKey(f) === key);
-  return allParkings.find(p => getKey(p) === key);
-}
-
-function flyToItem(item) {
-  const [lng, lat] = item.properties ? item.properties._center : [item.lng, item.lat];
+function flyToBuilding(f) {
+  const [lng, lat] = f.properties._center;
   map.flyTo({ center: [lng, lat], zoom: 17, speed: 1.5 });
-  currentKey = getKey(item);
-
-  if (item.properties) {
-    const center = item.properties._center;
-    const original = allBuildings.features.find(f =>
-      JSON.stringify(f.properties._center) === JSON.stringify(center)
-    );
-    map.getSource('selected').setData({ type: 'FeatureCollection', features: [original || item] });
-  } else {
-    const feature = allParkings.find(p => p.no === item.no)?.feature;
-    if (feature) map.getSource('selected').setData({ type: 'FeatureCollection', features: [feature] });
-  }
+  currentKey = getKey(f);
+  const original = allBuildings.features.find(x =>
+    JSON.stringify(x.properties._center) === JSON.stringify(f.properties._center)
+  );
+  map.getSource('selected').setData({ type: 'FeatureCollection', features: [original || f] });
 }
 
 // ============ 팝업 ============
@@ -438,15 +364,17 @@ function openBuildingPopup(f, lngLat) {
   const isBookmarked = bookmarks[key];
   const memo = memos[key] || '';
   const name = names[key] || '';
+  const addr = addrs[key] || '';
   const installArea = (p.area * filters.utilization);
   const kindLabel = p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고';
 
   const html = `
-    <div class="popup-title">${p.installed ? '⚠ 기설치' : '○ 영업가능'} · ${kindLabel}</div>
+    <div class="popup-title">○ 영업가능 · ${kindLabel}</div>
     <div class="popup-name-row">
       <input type="text" id="popName" placeholder="수요처명" value="${escapeHtml(name)}">
       <button id="popAddrBtn">주소</button>
     </div>
+    ${addr ? `<div style="font-size:11px;color:#007aff;padding:4px 0">${escapeHtml(addr)}</div>` : ''}
     <div class="popup-row"><span>지역</span><strong>${p.sido || '-'}</strong></div>
     <div class="popup-row"><span>전체 면적</span><strong>${p.area.toFixed(0)} ㎡</strong></div>
     <div class="popup-row"><span>설치 가능</span><strong>${installArea.toFixed(0)} ㎡</strong></div>
@@ -460,36 +388,7 @@ function openBuildingPopup(f, lngLat) {
   new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
     .setLngLat(lngLat).setHTML(html).addTo(map);
 
-  setTimeout(() => bindPopupEvents(key), 50);
-}
-
-function openParkingPopup(parking, lngLat) {
-  const key = getKey(parking);
-  currentKey = key;
-
-  const isBookmarked = bookmarks[key];
-  const memo = memos[key] || '';
-  const name = names[key] || '';
-
-  const html = `
-    <div class="popup-title">🅿 주차장 ${parking.installed ? '· ⚠ 기설치' : ''}</div>
-    <div class="popup-name-row">
-      <input type="text" id="popName" placeholder="${escapeHtml(parking.name)}" value="${escapeHtml(name)}">
-      <button id="popAddrBtn">주소</button>
-    </div>
-    <div class="popup-row"><span>주차면수</span><strong>${parking.count}면</strong></div>
-    <div class="popup-row"><span>도로명</span><strong style="font-size:11px">${parking.roadAddr || '-'}</strong></div>
-    <div class="popup-row"><span>지번</span><strong style="font-size:11px">${parking.lotAddr || '-'}</strong></div>
-    <div class="popup-actions">
-      <button id="popBm" class="${isBookmarked ? 'active' : ''}">★ ${isBookmarked ? '해제' : '북마크'}</button>
-    </div>
-    <textarea class="popup-memo" id="popMemo" placeholder="메모...">${escapeHtml(memo)}</textarea>
-  `;
-
-  new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
-    .setLngLat(lngLat).setHTML(html).addTo(map);
-
-  setTimeout(() => bindPopupEvents(key), 50);
+  setTimeout(() => bindPopupEvents(key), 100);
 }
 
 function bindPopupEvents(key) {
@@ -552,9 +451,12 @@ async function searchAddress() {
     `).join('');
     resultsEl.querySelectorAll('.addr-result').forEach((el, i) => {
       el.addEventListener('click', () => {
-        names[currentAddrTarget] = items[i].place_name;
+        const item = items[i];
+        names[currentAddrTarget] = item.place_name;
+        addrs[currentAddrTarget] = item.road_address_name || item.address_name || '';
         localStorage.setItem('names_v2', JSON.stringify(names));
-        document.getElementById('addressModal').classList.add('hidden');
+        localStorage.setItem('addrs_v2', JSON.stringify(addrs));
+        closeAddrModal();
         renderResultsList();
         toast('수요처명 저장됨');
       });
@@ -564,140 +466,36 @@ async function searchAddress() {
   }
 }
 
-// ============ 태양광 로드 ============
-
-// ============ 주차장 로드 ============
-async function loadAllParking() {
-  if (parkingLoaded) return;
-  setLoading('주차장 데이터 로드 중...');
-  try {
-    const all = [];
-    let page = 1;
-    while (true) {
-      const res = await fetch(`${PARKING_API}?page=${page}`);
-      const data = await res.json();
-      if (!data.parkings || !data.parkings.length) break;
-      all.push(...data.parkings);
-      const total = data.total || 0;
-      setLoading(`주차장 로드 ${all.length}/${total}`);
-      if (all.length >= total) break;
-      page++;
-      if (page > 50) break;
-    }
-    allParkings = all;
-    parkingLoaded = true;
-    setLoading('주차장 폴리곤 가져오는 중...');
-    await loadParkingPolygons();
-    setLoading(null);
-    toast(`주차장 ${all.length}개 로드`);
-  } catch (e) {
-    setLoading(null);
-    toast('주차장 로드 실패');
-  }
-}
-
-// 위경도 → EPSG:900913 변환
-function toMercator(lng, lat) {
-  const x = lng * 20037508.34 / 180;
-  let y = Math.log(Math.tan((90 + lat) * Math.PI / 360)) / (Math.PI / 180);
-  y = y * 20037508.34 / 180;
-  return [x, y];
-}
-
-async function fetchParkingPolygon(p) {
-  try {
-    const [x, y] = toMercator(p.lng, p.lat);
-    const d = 5;
-    const url = `https://api.vworld.kr/req/wfs?SERVICE=WFS&REQUEST=GetFeature&TYPENAME=lp_pa_cbnd_bonbun&BBOX=${x-d},${y-d},${x+d},${y+d}&VERSION=1.1.0&MAXFEATURES=1&SRSNAME=EPSG:900913&OUTPUT=application/json&KEY=${VWORLD_KEY}`;
-    const res = await fetch(url);
-    const data = await res.json();
-    if (!data.features || !data.features.length) return null;
-    const feat = data.features[0];
-    // Mercator → WGS84 변환
-    feat.geometry = mercatorGeometryToWGS84(feat.geometry);
-    feat.properties = { ...feat.properties, no: p.no };
-    return feat;
-  } catch { return null; }
-}
-
-function mercatorGeometryToWGS84(geom) {
-  const convertCoord = ([x, y]) => {
-    const lng = x / 20037508.34 * 180;
-    let lat = y / 20037508.34 * 180;
-    lat = 180 / Math.PI * (2 * Math.atan(Math.exp(lat * Math.PI / 180)) - Math.PI / 2);
-    return [lng, lat];
-  };
-  const convertRing = ring => ring.map(convertCoord);
-  if (geom.type === 'MultiPolygon') {
-    geom.coordinates = geom.coordinates.map(poly => poly.map(convertRing));
-  } else if (geom.type === 'Polygon') {
-    geom.coordinates = geom.coordinates.map(convertRing);
-  }
-  return geom;
-}
-
-async function loadParkingPolygons() {
-  const features = [];
-  const BATCH = 5;
-  for (let i = 0; i < allParkings.length; i += BATCH) {
-    const batch = allParkings.slice(i, i + BATCH);
-    const results = await Promise.all(batch.map(fetchParkingPolygon));
-    results.forEach((feat, j) => {
-      if (feat) {
-        allParkings[i+j].feature = feat;
-        features.push(feat);
-      }
-    });
-    setLoading(`주차장 폴리곤 ${Math.min(i+BATCH, allParkings.length)}/${allParkings.length}`);
-  }
-  filteredParkings = allParkings.filter(p => p.feature);
-  matchParkingInstalled();
-  map.getSource('parking').setData({ type: 'FeatureCollection', features });
-  updateCounts();
-  if (currentTab === 'parking' || currentTab === 'bookmark') renderResultsList();
-}
-
 // ============ 엑셀 ============
 function exportToExcel() {
   let items = [];
   if (currentTab === 'building') items = filteredBuildings;
-  else if (currentTab === 'parking') items = filteredParkings;
   else {
     const keys = Object.keys(bookmarks);
-    items = [
-      ...(allBuildings?.features.filter(f => keys.includes(getKey(f))) || []),
-      ...allParkings.filter(p => keys.includes(getKey(p)))
-    ];
+    items = allBuildings?.features.filter(f => keys.includes(getKey(f))) || [];
   }
 
   if (!items.length) { toast('내보낼 데이터 없음'); return; }
 
-  const rows = items.map(item => {
-    const key = getKey(item);
-    if (item.properties) {
-      const p = item.properties;
-      return {
-        '구분': '지붕형', '수요처명': names[key] || '', '지역': p.sido || '',
-        '건물유형': p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고',
-        '면적(㎡)': Math.round(p.area),
-        '설치가능면적(㎡)': Math.round(p.area * filters.utilization),
-        '추정설비용량(kW)': +p.capacity.toFixed(1),
-        '기설치여부': p.installed ? 'Y' : 'N',
-        '북마크': bookmarks[key] ? 'Y' : 'N',
-        '메모': memos[key] || '',
-        '위도': p._center[1].toFixed(6), '경도': p._center[0].toFixed(6),
-      };
-    } else {
-      return {
-        '구분': '주차장형', '수요처명': names[key] || item.name,
-        '주차면수': item.count, '도로명주소': item.roadAddr || '',
-        '지번주소': item.lotAddr || '', '기설치여부': item.installed ? 'Y' : 'N',
-        '북마크': bookmarks[key] ? 'Y' : 'N', '메모': memos[key] || '',
-        '위도': item.lat, '경도': item.lng,
-      };
-    }
+  const rows = items.map(f => {
+    const key = getKey(f);
+    const p = f.properties;
+    return {
+      '수요처명': names[key] || '',
+      '주소': addrs[key] || '',
+      '지역': p.sido || '',
+      '건물유형': p.KIND === 'BDK005' ? '무벽/축사' : '공장/창고',
+      '면적(㎡)': Math.round(p.area),
+      '설치가능면적(㎡)': Math.round(p.area * filters.utilization),
+      '추정설비용량(kW)': +p.capacity.toFixed(1),
+      '북마크': bookmarks[key] ? 'Y' : 'N',
+      '메모': memos[key] || '',
+      '위도': p._center[1].toFixed(6),
+      '경도': p._center[0].toFixed(6),
+    };
   });
 
+  rows.sort((a, b) => b['추정설비용량(kW)'] - a['추정설비용량(kW)']);
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, '영업타겟');
@@ -759,7 +557,8 @@ document.querySelectorAll('.map-type-btn').forEach(btn => {
     const newStyle = btn.dataset.type === 'satellite' ? satelliteStyle : baseMapStyle;
     map.setStyle(newStyle);
     map.once('styledata', () => {
-      map.setCenter(center); map.setZoom(zoom);
+      map.setCenter(center);
+      map.setZoom(zoom);
       setupMapLayers();
       if (allBuildings) applyFilters();
     });
@@ -772,17 +571,7 @@ document.getElementById('layerBuildings').addEventListener('change', e => {
   map.setLayoutProperty('buildings-line', 'visibility', v);
 });
 
-document.getElementById('layerParking').addEventListener('change', e => {
-  const v = e.target.checked ? 'visible' : 'none';
-  map.setLayoutProperty('parking-fill', 'visibility', v);
-  map.setLayoutProperty('parking-line', 'visibility', v);
-  if (e.target.checked && !parkingLoaded) loadAllParking();
-});
-
-document.getElementById('closeAddrModal').addEventListener('click', () => {
-  document.getElementById('addressModal').classList.add('hidden');
-});
-
+document.getElementById('closeAddrModal').addEventListener('click', closeAddrModal);
 document.getElementById('addrSearchBtn').addEventListener('click', searchAddress);
 document.getElementById('addrSearchInput').addEventListener('keypress', e => {
   if (e.key === 'Enter') searchAddress();
