@@ -2,8 +2,8 @@
 // ============ 설정 ============
 const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';
 const BUILDINGS_URL = 'https://pub-9f412c718f774c63833a747a845a8a5c.r2.dev/buildings.geojson';
-const SOLAR_API = '/functions/solar';
-const PARKING_API = '/functions/parking';
+const SOLAR_API = '/solar';
+const PARKING_API = '/parking';
 const MIN_AREA = 3000;
 
 // ============ 전역 상태 ============
