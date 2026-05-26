@@ -530,38 +530,28 @@ function openAddrModal(key) {
   document.getElementById('addrResults').innerHTML = '';
 }
 
-async function searchAddress() {
+aasync function searchAddress() {
   const query = document.getElementById('addrSearchInput').value.trim();
   if (!query) return;
   const resultsEl = document.getElementById('addrResults');
   resultsEl.innerHTML = '검색 중...';
-
   try {
-    const url = `https://dapi.kakao.com/v2/local/search/keyword.json?query=${encodeURIComponent(query)}&size=10`;
-    const res = await fetch(url, {
-      headers: {
-        'Authorization': 'KakaoAK 68cb31d6651ad2e6c4ce8980fc005e2c'
-      }
-    });
+    const res = await fetch(`/search?query=${encodeURIComponent(query)}`);
     const data = await res.json();
     const items = data.documents || [];
-
     if (!items.length) {
       resultsEl.innerHTML = '<div style="text-align:center;color:#86868b;padding:20px">검색 결과 없음</div>';
       return;
     }
-
     resultsEl.innerHTML = items.map((item, i) => `
       <div class="addr-result" data-idx="${i}">
         <div class="addr-result-title">${escapeHtml(item.place_name)}</div>
         <div class="addr-result-addr">${escapeHtml(item.road_address_name || item.address_name || '')}</div>
       </div>
     `).join('');
-
     resultsEl.querySelectorAll('.addr-result').forEach((el, i) => {
       el.addEventListener('click', () => {
-        const item = items[i];
-        names[currentAddrTarget] = item.place_name;
+        names[currentAddrTarget] = items[i].place_name;
         localStorage.setItem('names_v2', JSON.stringify(names));
         document.getElementById('addressModal').classList.add('hidden');
         renderResultsList();
