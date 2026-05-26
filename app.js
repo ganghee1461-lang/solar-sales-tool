@@ -10,14 +10,12 @@ let allBuildings = null;
 let filteredBuildings = [];
 let allParkings = [];
 let filteredParkings = [];
-let solarPoints = [];
 let bookmarks = JSON.parse(localStorage.getItem('bookmarks_v2') || '{}');
 let memos = JSON.parse(localStorage.getItem('memos_v2') || '{}');
 let names = JSON.parse(localStorage.getItem('names_v2') || '{}');
 let currentKey = null;
 let currentTab = 'building';
 let sortDesc = true;
-let solarLoaded = false;
 let parkingLoaded = false;
 let currentAddrTarget = null;
 
@@ -136,7 +134,6 @@ async function loadBuildings() {
       const sido = f.properties.sido || guessSido(f.properties._center);
       f.properties.sido = sido;
       if (sido) sidoSet.add(sido);
-      f.properties.installed = false;
     });
 
     allBuildings = data;
@@ -227,19 +224,6 @@ function setupMapLayers() {
     type: 'line',
     source: 'selected',
     paint: { 'line-color': '#ffd60a', 'line-width': 4 }
-  });
-
-  map.addSource('solar', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({
-    id: 'solar-points',
-    type: 'circle',
-    source: 'solar',
-    paint: {
-      'circle-radius': 5,
-      'circle-color': '#ff3b30',
-      'circle-stroke-color': '#fff',
-      'circle-stroke-width': 1.5,
-    }
   });
 
   map.addSource('parking', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
@@ -585,53 +569,6 @@ async function searchAddress() {
 }
 
 // ============ 태양광 로드 ============
-async function loadAllSolar() {
-  if (solarLoaded) return;
-  setLoading('태양광 데이터 로드 중...');
-  try {
-    const all = [];
-    let page = 1;
-    while (true) {
-      const res = await fetch(`${SOLAR_API}?page=${page}`);
-      const data = await res.json();
-      if (!data.points || !data.points.length) break;
-      all.push(...data.points);
-      const total = data.total || 0;
-      setLoading(`태양광 로드 ${all.length}/${total}`);
-      if (all.length >= total) break;
-      page++;
-      if (page > 200) break;
-    }
-    solarPoints = all;
-    solarLoaded = true;
-    setLoading(null);
-    toast(`태양광 ${all.length}개 로드`);
-
-    map.getSource('solar').setData({
-      type: 'FeatureCollection',
-      features: solarPoints.map(p => ({
-        type: 'Feature',
-        geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
-        properties: p,
-      }))
-    });
-    matchInstalled();
-  } catch (e) {
-    setLoading(null);
-    toast('태양광 로드 실패');
-  }
-}
-
-function matchInstalled() {
-  if (!allBuildings || !solarPoints.length) return;
-  allBuildings.features.forEach(f => {
-    f.properties.installed = solarPoints.some(p => {
-      try { return turf.booleanPointInPolygon([p.lng, p.lat], f); }
-      catch { return false; }
-    });
-  });
-  applyFilters();
-}
 
 // ============ 주차장 로드 ============
 async function loadAllParking() {
@@ -722,17 +659,6 @@ async function loadParkingPolygons() {
   map.getSource('parking').setData({ type: 'FeatureCollection', features });
   updateCounts();
   if (currentTab === 'parking' || currentTab === 'bookmark') renderResultsList();
-}
-
-function matchParkingInstalled() {
-  if (!solarPoints.length) return;
-  allParkings.forEach(p => {
-    if (!p.feature) return;
-    p.installed = solarPoints.some(sp => {
-      try { return turf.booleanPointInPolygon([sp.lng, sp.lat], p.feature); }
-      catch { return false; }
-    });
-  });
 }
 
 // ============ 엑셀 ============
@@ -848,12 +774,6 @@ document.getElementById('layerBuildings').addEventListener('change', e => {
   const v = e.target.checked ? 'visible' : 'none';
   map.setLayoutProperty('buildings-fill', 'visibility', v);
   map.setLayoutProperty('buildings-line', 'visibility', v);
-});
-
-document.getElementById('layerSolar').addEventListener('change', e => {
-  const v = e.target.checked ? 'visible' : 'none';
-  map.setLayoutProperty('solar-points', 'visibility', v);
-  if (e.target.checked && !solarLoaded) loadAllSolar();
 });
 
 document.getElementById('layerParking').addEventListener('change', e => {
