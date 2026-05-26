@@ -388,7 +388,7 @@ function openBuildingPopup(f, lngLat) {
   new maplibregl.Popup({ closeButton: true, maxWidth: '320px' })
     .setLngLat(lngLat).setHTML(html).addTo(map);
 
-  setTimeout(() => bindPopupEvents(key), 100);
+  setTimeout(() => bindPopupEvents(key), 300);
 }
 
 function bindPopupEvents(key) {
