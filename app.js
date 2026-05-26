@@ -1,6 +1,6 @@
 // ============ 설정 ============
 const VWORLD_KEY = 'B1583C8F-3511-30DD-BAD0-C5278FF4351E';
-const BUILDINGS_URL = 'buildings.geojson';
+const BUILDINGS_URL = 'https://github.com/ganghee1461-lang/solar-sales-tool/releases/download/v1/buildings.geojson';
 const SOLAR_API = '/.netlify/functions/solar';
 const PARKING_API = '/.netlify/functions/parking';
 const MIN_AREA = 3000;
