@@ -530,7 +530,7 @@ function openAddrModal(key) {
   document.getElementById('addrResults').innerHTML = '';
 }
 
-aasync function searchAddress() {
+async function searchAddress() {
   const query = document.getElementById('addrSearchInput').value.trim();
   if (!query) return;
   const resultsEl = document.getElementById('addrResults');
