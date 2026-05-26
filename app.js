@@ -7,6 +7,7 @@ const PARKING_API = '/parking';
 const MIN_AREA = 3000;
 
 // ============ 전역 상태 ============
+let addrs = JSON.parse(localStorage.getItem('addrs_v2') || '{}');
 let allBuildings = null;
 let filteredBuildings = [];
 let allParkings = [];
