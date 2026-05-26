@@ -1,7 +1,6 @@
-// 브이월드 주차장 폴리곤 프록시
-const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';
-
+// netlify/functions/parking.js
 exports.handler = async (event) => {
+  const SERVICE_KEY = '91f8ffe040fc2d65517040949b7e88d6d5a382c577809c94bf144214e891d1d2';
   const { minLng, minLat, maxLng, maxLat } = event.queryStringParameters || {};
 
   if (!minLng) {
@@ -9,34 +8,45 @@ exports.handler = async (event) => {
   }
 
   try {
-    // 브이월드 WFS 주차장
-    const url = `https://api.vworld.kr/req/wfs?service=wfs&version=1.1.0&request=GetFeature&typename=lt_p_uq128&srs=EPSG:4326&bbox=${minLat},${minLng},${maxLat},${maxLng}&maxFeatures=300&output=GML2&key=${VWORLD_KEY}`;
+    // 한 번에 1000개씩, 최대 12페이지 (11,707개)
+    const allItems = [];
+    const totalPages = 12;
 
-    const res = await fetch(url);
-    if (!res.ok) {
-      return {
-        statusCode: 200,
-        headers: { 'Access-Control-Allow-Origin': '*' },
-        body: JSON.stringify({ features: [] }),
-      };
+    for (let page = 1; page <= totalPages; page++) {
+      const url = `https://api.data.go.kr/openapi/tn_pubr_prkplce_info_api?serviceKey=${SERVICE_KEY}&pageNo=${page}&numOfRows=1000&type=json&prkplceType=노외`;
+      const res = await fetch(url);
+      const data = await res.json();
+      const items = data.response?.body?.items || [];
+      if (!items.length) break;
+      allItems.push(...items);
     }
 
-    const text = await res.text();
-    // WFS XML → GeoJSON 간단 변환은 복잡하므로 일단 빈 결과
-    // 추후 구현
+    // bbox 필터 + 24면 이상
+    const filtered = allItems.filter(p => {
+      const lat = parseFloat(p.latitude);
+      const lng = parseFloat(p.longitude);
+      const cnt = parseInt(p.prkcmprt) || 0;
+      if (!lat || !lng || cnt < 24) return false;
+      return lng >= +minLng && lng <= +maxLng && lat >= +minLat && lat <= +maxLat;
+    });
+
+    const result = filtered.map(p => ({
+      no: p.prkplceNo,
+      name: p.prkplceNm,
+      lat: parseFloat(p.latitude),
+      lng: parseFloat(p.longitude),
+      count: parseInt(p.prkcmprt),
+      roadAddr: p.rdnmadr,
+      lotAddr: p.lnmadr,
+      type: p.prkplceSe,
+    }));
+
     return {
       statusCode: 200,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ features: [] }),
+      headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify({ parkings: result }),
     };
   } catch (e) {
-    return {
-      statusCode: 500,
-      headers: { 'Access-Control-Allow-Origin': '*' },
-      body: JSON.stringify({ error: e.message, features: [] }),
-    };
+    return { statusCode: 500, body: JSON.stringify({ error: e.message }) };
   }
 };
