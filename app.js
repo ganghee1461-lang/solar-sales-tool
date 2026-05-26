@@ -1,3 +1,4 @@
+// v2
 // ============ 설정 ============
 const VWORLD_KEY = 'B1583C8F-3511-30DD-BAD0-C5278FF4351E';
 const BUILDINGS_URL = 'https://pub-9f412c718f774c63833a747a845a8a5c.r2.dev/buildings.geojson';
