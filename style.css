@@ -127,3 +127,4 @@ main{flex:1;position:relative;min-width:0}
   #side,#basemap,#legend{zoom:1.25}
   .card .maplibregl-popup-content{zoom:1.25}
 }
+#list .retry{margin-top:10px;border:1px solid var(--line);background:#fff;border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer}

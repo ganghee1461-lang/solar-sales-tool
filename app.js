@@ -8,7 +8,6 @@ const HOME_REGION = 'S:충청북도';   // 처음 열 때 보여줄 지역(충�
 let regions = [], region = null;           // 지역 목록, 지금 보는 지역
 let meta = {}, groups = [], bldg = null;
 const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
-const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
 let index = [], indexDone = false, indexBusy = null;   // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
 const f = { emd: '', sol: 'exclude', minC: 100, util: 0.5, kw: 0.30, q: '' };   // q = 검색어(목록·지도를 거른다)   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
@@ -25,7 +24,20 @@ const lc = s => String(s || '').toLowerCase();
 const hitQ = g => !f.q || lc(g.nm).includes(f.q) || lc(g.ad).includes(f.q);   // 검색어가 회사명·주소에 있는지
 // 지도를 맞출 때 여백: 폰에서 아래 패널이 올라와 있으면 그 높이만큼 비운다
 const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 56, left: 16, right: 16, bottom: Math.min($('side').offsetHeight + 8, $('map').offsetHeight * 0.42) } : 40;
-const getJson = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+// 받기: 실패하면 두 번 더 시도한다(폰 통신이 끊길 때 대비)
+async function getJson(u) {
+  for (let i = 0; ; i++) {
+    try { const r = await fetch(u); if (!r.ok) throw new Error(u + ' ' + r.status); return await r.json(); }
+    catch (e) { if (i >= 2) throw e; await sleep(600 * (i + 1)); }
+  }
+}
+// 여러 파일을 6개씩 나눠 받는다
+async function pool(items, fn, n = 6) {
+  const out = new Array(items.length); let k = 0;
+  await Promise.all(Array.from({ length: Math.min(n, items.length) }, async () => { while (k < items.length) { const i = k++; out[i] = await fn(items[i], i); } }));
+  return out;
+}
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 // ===== 지도 =====
@@ -63,6 +75,10 @@ function addLayers() {
   map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': '#d92d20', 'fill-opacity': 0.1 } });
   map.addLayer({ id: 'x-line', type: 'line', source: 'x', layout: { 'line-join': 'round' },
     paint: { 'line-color': sat ? '#ff6b5e' : '#d92d20', 'line-opacity': 0.8, 'line-dasharray': [3, 2], 'line-width': W(0.5, 1.3, 2) } });
+  // 회사 위치 점: 광역 전체처럼 건물 도형을 아직 안 받았거나 넓게 볼 때(확대 11 미만)
+  map.addSource('p', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'p-dot', type: 'circle', source: 'p', maxzoom: 12,
+    paint: { 'circle-color': '#0b7a6b', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 4.5], 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.6, 'circle-opacity': 0.9 } });
   // 선택한 곳: 진한 채움 + 노란 굵은 테두리
   map.addSource('sel', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'sel-fill', type: 'fill', source: 'sel', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.35 : 0.85 } });
@@ -71,7 +87,7 @@ function addLayers() {
   drawMap();
 }
 map.on('load', addLayers);
-['b-fill', 'x-fill'].forEach(l => {
+['b-fill', 'x-fill', 'p-dot'].forEach(l => {
   map.on('click', l, e => { const g = groups[e.features[0].properties.g]; if (g) select(g); });
   map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
 });
@@ -84,7 +100,8 @@ function drawMap() {
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g) && !(hide && x.properties.st === 'on')) });
   const emdOk = new Set(groups.filter(g => !f.emd || g.sub === f.emd).map(g => g.id));
   map.getSource('x').setData({ type: 'FeatureCollection', features: hide ? bldg.features.filter(x => x.properties.st === 'on' && emdOk.has(x.properties.g)) : [] });
-  map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
+  map.getSource('p').setData({ type: 'FeatureCollection', features: view.map(g => ({ type: 'Feature', geometry: { type: 'Point', coordinates: g.c }, properties: { g: g.id } })) });
+  map.getSource('sel').setData(selected && byGroup.has(selected.id) ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
   const sat = base === 'sat';
   map.setPaintProperty('b-fill', 'fill-opacity', selected ? (sat ? 0.08 : 0.14) : (sat ? 0.22 : 0.4));   // 선택한 곳이 있으면 나머지는 흐리게
   map.setPaintProperty('b-line', 'line-opacity', selected ? (sat ? 0.9 : 0.35) : 1);
@@ -169,7 +186,9 @@ function bounds(g) {
   const pts = byGroup.get(g.id).flatMap(x => x.geometry.coordinates[0]);
   return pts.reduce((r, p) => [Math.min(r[0], p[0]), Math.min(r[1], p[1]), Math.max(r[2], p[0]), Math.max(r[3], p[1])], [999, 999, -999, -999]);
 }
-function select(g) {
+async function select(g) {
+  if (!byGroup.has(g.id)) { try { await ensureGeom(g.rc); } catch (e) { return; } }
+  if (!byGroup.has(g.id)) return;
   selected = g; calc(g);
   const b = bounds(g), m = mobile();
   if (m) $('side').classList.add('hide');
@@ -189,14 +208,32 @@ function markList() {
 }
 
 // ===== 지역 =====
-// 지역은 "도 전체"(코드가 'S:도이름') 또는 시군구 하나. 도 전체는 그 도의 시군구 자료를 모두 받아 하나로 합친다.
-async function fetchRegion(code) {
-  if (!cache.has(code)) {
-    const [a, b] = await Promise.all(['info.json', 'bldg.geojson'].map(n => getJson(`data/${code}/${n}`)));
-    cache.set(code, { a, b });
+// 지역은 "도 전체"(코드가 'S:도이름') 또는 시군구 하나.
+// 회사 목록(info.json)은 범위 전체를 받는다. 건물 도형(bldg.geojson)은 무거워서
+//  시군구 하나면 바로 받고, 도 전체면 지도를 확대한 곳의 시군구만 그때그때 받는다.
+const infoCache = new Map(), geomCache = new Map();
+let parts = [], partOff = new Map(), geomDone = new Set(), loadSeq = 0;
+async function fetchInfo(code) { if (!infoCache.has(code)) infoCache.set(code, await getJson(`data/${code}/info.json`)); return infoCache.get(code); }
+async function ensureGeom(code) {
+  if (geomDone.has(code) || !partOff.has(code)) return;
+  const seq = loadSeq;
+  if (!geomCache.has(code)) geomCache.set(code, getJson(`data/${code}/bldg.geojson`).catch(e => { geomCache.delete(code); throw e; }));   // 같은 파일을 두 번 받지 않게 받는 중인 것도 기억
+  const gj = await geomCache.get(code);
+  if (seq !== loadSeq || geomDone.has(code)) return;   // 그사이 다른 지역으로 옮겼으면 버린다
+  const off = partOff.get(code);
+  for (const x of gj.features) {
+    const ft = { type: 'Feature', geometry: x.geometry, properties: { g: off + x.properties.g, st: x.properties.st } };
+    bldg.features.push(ft); if (!byGroup.has(ft.properties.g)) byGroup.set(ft.properties.g, []); byGroup.get(ft.properties.g).push(ft);
   }
-  return cache.get(code);
+  geomDone.add(code); drawMap();
 }
+// 도 전체에서 지도를 확대하면 화면에 걸친 시군구의 건물 도형을 받는다
+function geomInView() {
+  if (!region || !region.all || map.getZoom() < 11) return;
+  const v = map.getBounds(), w = v.getWest(), e = v.getEast(), s2 = v.getSouth(), n = v.getNorth();
+  parts.filter(r => !geomDone.has(r.code) && r.bbox[0] <= e && r.bbox[2] >= w && r.bbox[1] <= n && r.bbox[3] >= s2).forEach(r => ensureGeom(r.code).catch(() => {}));
+}
+map.on('moveend', geomInView);
 // 광역 · 시군구 · 읍면동 세 칸을 지금 범위에 맞게 채운다. 각 칸 맨 위는 '전체'
 function fillScope() {
   const sido = region.nation ? '' : region.sido, sggs = sido ? regions.filter(r => r.sido === sido) : [], single = sggs.length === 1;
@@ -218,6 +255,7 @@ function fitGroups(list) {
 }
 function resetSearch() { $('q').value = ''; $('hits').hidden = true; f.q = ''; }
 function loadNation() {
+  loadSeq++; parts = []; partOff = new Map(); geomDone = new Set();
   clearSelection(); resetSearch();
   region = { code: 'ALL', nation: true, name: '전국', sido: '', bbox: regions.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) };
   meta = {}; groups = []; byGroup.clear(); idmap.clear(); bldg = { type: 'FeatureCollection', features: [] }; f.emd = '';
@@ -230,28 +268,37 @@ async function loadRegion(code) {
   code = decodeURIComponent(code || '');
   if (code === 'ALL') return loadNation();
   let sidoOf = code.startsWith('S:') ? code.slice(2) : null;
-  let parts = sidoOf ? regions.filter(r => r.sido === sidoOf) : regions.filter(r => r.code === code);
-  if (!parts.length) return loadRegion(HOME_REGION);
-  if (sidoOf && parts.length === 1) sidoOf = null;   // 세종처럼 시군구가 하나뿐인 곳은 시군구로 연다
+  const ps = sidoOf ? regions.filter(r => r.sido === sidoOf) : regions.filter(r => r.code === code);
+  if (!ps.length) return loadRegion(HOME_REGION);
+  if (sidoOf && ps.length === 1) sidoOf = null;   // 세종처럼 시군구가 하나뿐인 곳은 시군구로 연다
+  const seq = ++loadSeq;
   resetSearch();
   $('list').innerHTML = '<li class="msg">불러오는 중…</li>';
-  const data = await Promise.all(parts.map(r => fetchRegion(r.code)));
+  let data;
+  try { data = await pool(ps, r => fetchInfo(r.code)); }
+  catch (e) {
+    if (seq !== loadSeq) return;
+    $('list').innerHTML = `<li class="msg">불러오지 못했습니다<br><button class="retry" type="button">다시 시도</button></li>`;
+    $('list').querySelector('.retry').onclick = () => loadRegion(code);
+    return;
+  }
+  if (seq !== loadSeq) return;   // 기다리는 사이 다른 지역을 눌렀으면 버린다
   clearSelection();
   const all = !!sidoOf;
-  region = all ? { code: 'S:' + sidoOf, sido: sidoOf, name: sidoOf, all: true, bbox: parts.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) } : parts[0];
-  meta = data[0].a.meta; groups = []; byGroup.clear(); idmap.clear();
-  const feats = [];
+  region = all ? { code: 'S:' + sidoOf, sido: sidoOf, name: sidoOf, all: true, bbox: ps.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) } : ps[0];
+  parts = ps; partOff = new Map(); geomDone = new Set();
+  meta = data[0].meta; groups = []; byGroup.clear(); idmap.clear();
   data.forEach((d, i) => {
-    const off = groups.length, r = parts[i];
-    d.a.groups.forEach(g => { const n = Object.assign({}, g, { id: off + g.id, sub: all ? r.name : g.emd }); groups.push(n); idmap.set(r.code + ':' + g.id, n); });
-    d.b.features.forEach(x => { const ft = { type: 'Feature', geometry: x.geometry, properties: { g: off + x.properties.g, st: x.properties.st } }; feats.push(ft); if (!byGroup.has(ft.properties.g)) byGroup.set(ft.properties.g, []); byGroup.get(ft.properties.g).push(ft); });
+    const off = groups.length, r = ps[i]; partOff.set(r.code, off);
+    d.groups.forEach(g => { const n = Object.assign({}, g, { id: off + g.id, sub: all ? r.name : g.emd, rc: r.code }); groups.push(n); idmap.set(r.code + ':' + g.id, n); });
   });
-  bldg = { type: 'FeatureCollection', features: feats };
+  bldg = { type: 'FeatureCollection', features: [] };
   f.emd = '';
   fillScope();
   history.replaceState(null, '', '#' + encodeURIComponent(region.code)); store.set('roofpv_region', region.code);
   apply();
   map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 0 });
+  if (!all) ensureGeom(ps[0].code).catch(() => {}); else geomInView();
 }
 
 // ===== 통합 검색 (회사·주소·지역) =====
