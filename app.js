@@ -34,8 +34,7 @@ function style(kind) {
   const src = {}, layers = [];
   if (kind === 'sat') {
     src.sat = { type: 'raster', tiles: [t('Satellite') + 'jpeg'], tileSize: 256, attribution: '© VWorld' };
-    src.hyb = { type: 'raster', tiles: [t('Hybrid') + 'png'], tileSize: 256 };
-    layers.push({ id: 'sat', type: 'raster', source: 'sat' }, { id: 'hyb', type: 'raster', source: 'hyb' });
+    layers.push({ id: 'sat', type: 'raster', source: 'sat' });   // 도로·지명 겹침(Hybrid)은 쓰지 않는다
   } else {
     src.base = { type: 'raster', tiles: [t('Base') + 'png'], tileSize: 256, attribution: '© VWorld' };
     layers.push({ id: 'base', type: 'raster', source: 'base' });
@@ -104,11 +103,10 @@ function apply() {
   $('basisNow').textContent = `${num(f.minC)}kW 이상 · ${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡`;
   if (region && region.nation) {
     view = []; const rows = sidoRows();
-    $('sN').textContent = num(rows.reduce((a, r) => a + r.n, 0)); $('sCap').textContent = '-'; $('sGen').textContent = '-';
     $('list').innerHTML = rows.map((r, i) => `
       <li data-sido="${esc('S:' + r.s)}" class="sido">
         <span class="rk">${i + 1}</span><span class="nm">${esc(r.s)}</span><span class="cap">${num(r.n)}<small>곳</small></span>
-        <span class="ad">시군구 ${r.k}곳</span><span class="ar"></span>
+        <span class="ad">시군구 ${r.k}곳</span>
         <span class="bar"><i style="width:${Math.max(2, r.n / rows[0].n * 100).toFixed(1)}%"></i></span>
       </li>`).join('');
     drawMap(); return;
@@ -120,9 +118,6 @@ function apply() {
     if (f.sol === 'exclude' && g.st === 'on') return false;   // 모든 동에 태양광이 있는 곳만 뺀다
     return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
   }).sort((a, b) => b._cap - a._cap);
-  $('sN').textContent = num(view.length);
-  $('sCap').textContent = num(view.reduce((s, g) => s + g._cap, 0) / 1000, 1);
-  $('sGen').textContent = num(view.reduce((s, g) => s + (g._gen || 0), 0) / 1000, 1);
   drawList(); drawMap();
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
@@ -137,7 +132,6 @@ function drawList() {
       <span class="nm">${esc(gname(g))}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
-      <span class="ar">${num(g.a)}㎡ · ${g.n}동${g.nt > g.n ? ` <em>기존 ${g.nt - g.n}동 제외</em>` : ''}</span>
       <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
     </li>`).join('')
     + (view.length > LIST_MAX ? `<li class="msg">${LIST_MAX} / ${num(view.length)}곳</li>` : '')
@@ -148,7 +142,6 @@ function drawList() {
       <span class="nm">${esc(gname(g))}<span class="tag">${g.st === 'on' ? '기존 태양광' : '조건 밖'}</span></span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
-      <span class="ar">${num(g.a)}㎡ · ${g.n}동</span>
     </li>`).join('') : '');
 }
 $('list').addEventListener('click', e => {
@@ -181,7 +174,7 @@ function select(g) {
   const b = bounds(g), m = mobile();
   if (m) $('side').classList.add('hide');
   // 팝업은 건물 바로 옆(PC는 오른쪽, 폰은 아래)에 붙인다
-  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 70, bottom: 300, left: 30, right: 30 } : { top: 70, bottom: 70, left: 70, right: 330 }, maxZoom: 17.5, duration: 500 });
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 70, bottom: 300, left: 30, right: 30 } : { top: 70, bottom: 70, left: 70, right: 400 }, maxZoom: 17.5, duration: 500 });
   if (popup) { popup.off('close', onPopupClose); popup.remove(); }
   popup = new maplibregl.Popup({ className: 'card', closeOnClick: false, focusAfterOpen: false, maxWidth: 'none', anchor: m ? 'top' : 'left', offset: 12 })
     .setLngLat(m ? [(b[0] + b[2]) / 2, b[1]] : [b[2], (b[1] + b[3]) / 2]).setHTML(card(g)).addTo(map);

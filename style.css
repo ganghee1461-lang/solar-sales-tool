@@ -121,3 +121,9 @@ main{flex:1;position:relative;min-width:0}
   #legend{display:none}
   #toggleSide{display:block;position:absolute;left:50%;transform:translateX(-50%);bottom:22px;border:0;background:var(--ink);color:#fff;border-radius:999px;padding:11px 22px;font-size:14px;font-weight:600;box-shadow:0 3px 10px rgba(16,24,40,.35);z-index:2}
 }
+
+/* PC: 패널·팝업·지도 위 버튼을 125%로 (지도 자체는 그대로) */
+@media (min-width:761px){
+  #side,#basemap,#legend{zoom:1.25}
+  .card .maplibregl-popup-content{zoom:1.25}
+}
