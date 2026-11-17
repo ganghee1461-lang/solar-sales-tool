@@ -263,6 +263,12 @@ def main():
                   'road': ad.get('road', ''), 'jibun': ad.get('jibun', ''), 'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)),
                   'use': max(uses, key=uses.get), 'uses': {u: round(v) for u, v in uses.items()}, 'ey': ey,
                   'sol': so, 'solst': ('on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none'), 'solkw': round(sum(s['kw'] for s in so), 1)})
+    # 주용도가 공장·창고시설인 묶음만 싣는다(번호는 용량 큰 순으로 다시 매김)
+    G = [g for g in G if g['use'] in ('BDS015', 'BDS016')]
+    remap = {g['id']: i for i, g in enumerate(G)}
+    for g in G: g['id'] = remap[g['id']]
+    cand_all = cand; cand = [b for b in cand if b['gid'] in remap]
+    for b in cand: b['gid'] = remap[b['gid']]
     feats = []
     for b in cand:
         coords = [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]
@@ -273,7 +279,7 @@ def main():
             'solar_src': '전국태양광발전시설 표준데이터(공공데이터포털), 진천군 기준일 2026-07-20, %d건' % len(sol),
             'pv_src': 'PVGIS 5.3 (PVGIS-ERA5, 2005~2023), 경사 10도·정남·손실 14% 가정',
             'min_area': MIN_AREA, 'near_m': NEAR_M, 'link_m': LINK_M, 'serv': SERV,
-            'n_bldg': len(cand), 'area': round(sum(b['area_m2'] for b in cand)), 'n_group': len(G), 'solar_match': dict(stat),
+            'n_bldg': len(cand), 'area': round(sum(b['area_m2'] for b in cand)), 'n_group': len(G), 'pv_tilt': 10, 'pv_loss': 14, 'solar_match': dict(stat),
             'check_factory_wh': {'n': len(chk_in), 'area': round(sum(b['area_m2'] for b in chk_in))}}
     def dump(name, obj):
         p = os.path.join(OUT, name); json.dump(obj, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); print(name, round(os.path.getsize(p) / 1e6, 2), 'MB')

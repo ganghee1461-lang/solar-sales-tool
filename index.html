@@ -3,80 +3,68 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>지붕 태양광 후보 · 진천군</title>
+<title>지붕 태양광 후보</title>
 <link href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <div id="app">
   <aside id="side">
+    <div id="grip" aria-hidden="true"></div>
     <header>
-      <h1>지붕 태양광 후보</h1>
-      <p id="region">불러오는 중…</p>
+      <div class="ttl">
+        <h1>지붕 태양광 후보</h1>
+        <select id="region" aria-label="지역"><option>진천군</option></select>
+      </div>
+      <div id="stats">
+        <div><b id="sN">-</b><span>후보 회사</span></div>
+        <div><b id="sCap">-</b><span>추정 용량 MW</span></div>
+        <div><b id="sGen">-</b><span>연간 발전량 GWh</span></div>
+      </div>
     </header>
 
-    <section id="summary">
-      <div><b id="sumGroups">-</b><span>회사(묶음)</span></div>
-      <div><b id="sumArea">-</b><span>지붕 면적 ㎡</span></div>
-      <div><b id="sumCap">-</b><span>추정 용량 MW</span></div>
-    </section>
-
-    <details id="filters" open>
-      <summary>조건</summary>
-      <input type="search" id="q" placeholder="회사명·주소 검색">
+    <div id="filters">
+      <input type="search" id="q" placeholder="회사명 또는 주소" aria-label="검색">
       <div class="row2">
-        <label>읍면
-          <select id="emd"><option value="">전체</option></select>
-        </label>
-        <label>기존 태양광
-          <select id="solMode">
-            <option value="exclude">있는 곳 제외</option>
-            <option value="all">전체 보기</option>
-            <option value="only">있는 곳만</option>
-          </select>
-        </label>
+        <select id="emd" aria-label="읍면"><option value="">읍면 전체</option></select>
+        <select id="solMode" aria-label="기존 태양광">
+          <option value="exclude">기존 태양광 제외</option>
+          <option value="all">기존 태양광 포함</option>
+          <option value="only">기존 태양광만</option>
+        </select>
       </div>
-      <div id="uses" class="chips"></div>
-      <label class="sl">동 최소 면적 <b id="vMinA">500㎡</b>
-        <input type="range" id="minA" min="500" max="5000" step="100" value="500"></label>
-      <label class="sl">최소 추정 용량 <b id="vMinC">0kW</b>
-        <input type="range" id="minC" min="0" max="2000" step="50" value="0"></label>
-      <label class="sl">설치 가능 비율 <b id="vUtil">50%</b>
-        <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
-      <label class="sl">㎡당 설비용량 <b id="vKw">0.10kW</b>
-        <input type="range" id="kw" min="5" max="22" step="1" value="10"></label>
-      <p class="hint">추정 용량 = 지붕 면적 × 설치 가능 비율 × ㎡당 설비용량. 두 기준값은 가정이며 바꿀 수 있습니다.</p>
-    </details>
-
-    <div id="tabs">
-      <button data-tab="all" class="on">후보 <i id="cntAll">0</i></button>
-      <button data-tab="bm">관심 <i id="cntBm">0</i></button>
-      <button id="btnXlsx" title="현재 목록을 엑셀로 저장">엑셀</button>
+      <details id="basis">
+        <summary>계산 기준 <span id="basisNow"></span></summary>
+        <label>설치 가능 비율 <b id="vUtil">50%</b>
+          <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
+        <label>㎡당 설비용량 <b id="vKw">0.10kW</b>
+          <input type="range" id="kw" min="5" max="22" step="1" value="10"></label>
+        <label>최소 추정 용량 <b id="vMinC">0kW</b>
+          <input type="range" id="minC" min="0" max="2000" step="50" value="0"></label>
+        <p>추정 용량 = 지붕 면적 × 설치 가능 비율 × ㎡당 설비용량</p>
+      </details>
     </div>
+
     <ol id="list"></ol>
-    <footer id="src"></footer>
   </aside>
 
   <main>
     <div id="map"></div>
-    <div id="mapctl">
+    <div id="basemap" role="group" aria-label="배경">
       <button data-base="base" class="on">지도</button>
       <button data-base="sat">항공사진</button>
-      <label><input type="checkbox" id="showSolar" checked> 기존 태양광 위치</label>
     </div>
     <div id="legend">
       <span><i class="c1"></i>후보</span>
-      <span><i class="c2"></i>태양광 좌표가 지붕 위</span>
-      <span><i class="c3"></i>50m 안에 태양광</span>
-      <span><i class="dot"></i>태양광 시설</span>
+      <span><i class="c2"></i>기존 태양광</span>
+      <span><i class="c3"></i>근처에 태양광</span>
+      <span><i class="dot"></i>태양광 시설 위치</span>
     </div>
     <article id="detail" hidden></article>
     <button id="toggleSide">목록</button>
   </main>
 </div>
-<div id="toast"></div>
 <script src="app.js"></script>
 </body>
 </html>
