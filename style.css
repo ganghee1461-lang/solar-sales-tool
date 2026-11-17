@@ -97,7 +97,8 @@ main{flex:1;position:relative;min-width:0}
 .card dd.red{color:#b42318}
 #basis p{margin:8px 0 0;line-height:1.5}
 .tip{position:relative;display:inline-block;width:16px;height:16px;line-height:14px;border:1px solid var(--line);border-radius:50%;background:#fff;font-size:10px;font-weight:700;color:var(--sub);padding:0;margin-left:3px;cursor:help;vertical-align:1px}
-.tip:hover::after,.tip:focus::after{content:attr(data-tip);position:absolute;right:-6px;bottom:22px;width:210px;padding:8px 10px;border-radius:8px;background:var(--ink);color:#fff;font-size:11px;font-weight:400;line-height:1.5;text-align:left;white-space:normal;z-index:9}
+.telno{position:relative;cursor:help;color:var(--ink);outline:none;border-bottom:1px dotted var(--sub)}
+.tip:hover::after,.tip:focus::after,.telno:hover::after,.telno:focus::after{content:attr(data-tip);position:absolute;right:-6px;bottom:22px;width:210px;padding:8px 10px;border-radius:8px;background:var(--ink);color:#fff;font-size:11px;font-weight:400;line-height:1.5;text-align:left;white-space:normal;z-index:9}
 
 @media (max-width:760px){
   #side{position:fixed;inset:auto 0 0 0;width:auto;height:64dvh;border-right:0;border-radius:18px 18px 0 0;box-shadow:0 -6px 24px rgba(16,24,40,.22);transition:transform .22s}

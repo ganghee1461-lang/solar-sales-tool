@@ -169,7 +169,9 @@ $('list').addEventListener('click', e => {
 // ===== 선택과 팝업 =====
 function card(g) {
   const c = meta.cf, tip = c ? `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})` : '';
-  const tel = g.tel ? `<a href="tel:${esc(g.tel.replace(/[^0-9+]/g, ''))}">${esc(g.tel)}</a>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
+  // 대표번호는 누르면 걸리지 않게 글자로만 두고, 마우스를 올리거나 누르면 출처가 뜬다
+  const telSrc = `출처: 전국공장등록현황(2026년 6월 말 기준) · 등록 회사 ${g.telnm || gname(g)}`;
+  const tel = g.tel ? `<span class="telno" tabindex="0" data-tip="${esc(telSrc)}">${esc(g.tel)}</span>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>
