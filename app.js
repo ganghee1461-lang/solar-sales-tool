@@ -255,14 +255,14 @@ async function loadRegion(code) {
 }
 
 // ===== 통합 검색 (회사·주소·지역) =====
-// 색인은 시도별 파일이다. 지금 보는 시도부터 받고 나머지는 이어서 받는다. 받는 대로 검색 결과에 반영된다.
+// 색인은 시도별 파일이다. 전부 동시에 받고, 받는 대로(잠깐 모았다가) 검색 결과에 반영한다.
 function loadIndex() {
   if (indexBusy) return indexBusy;
-  const cur = region ? (regions.find(r => r.sido === region.sido) || { code: '' }).code.slice(0, 2) : '', sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))].sort((a, b) => (b === cur) - (a === cur));
-  indexBusy = (async () => {
-    for (const s of sidos) { index = index.concat(await getJson(`data/search/${s}.json`).catch(() => [])); if (!$('hits').hidden || $('q').value.trim().length >= 2) search(); }
-    indexDone = true; if ($('q').value.trim().length >= 2) search();
-  })();
+  let t = 0;
+  const redraw = () => { clearTimeout(t); t = setTimeout(() => { if (region && region.nation && $('q').value.trim().length >= 2) search(); }, 150); };
+  const sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))];
+  indexBusy = Promise.all(sidos.map(s => getJson(`data/search/${s}.json`).catch(() => []).then(rows => { for (const r of rows) index.push(r); redraw(); })))
+    .then(() => { indexDone = true; redraw(); });
   return indexBusy;
 }
 // 검색은 위 세 칸으로 고른 범위 안에서만 한다.
