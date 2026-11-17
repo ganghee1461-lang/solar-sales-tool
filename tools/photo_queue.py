@@ -81,12 +81,14 @@ def merge():
                 if not isinstance(r, dict) or r.get('v') not in ('Y', 'N'): continue
                 out.write(json.dumps({'k': k, 'pass': v['pass'], 'v': r['v'], 'cover': r.get('cover'), 'conf': r.get('conf'), 'batch': int(bid)}, ensure_ascii=False) + '\n')
             del s['given'][bid]; os.rename(rp, rp + '.done'); done += 1
-    save_state(s); print('합친 묶음', done, '| 결과 없는 묶음(다시 돌려야 함)', sorted(int(b) for b in s['given'])); status()
+    save_state(s); todo = sorted(int(b) for b in s['given'])
+    print('합친 묶음', done, '| 결과 없는 묶음(다시 돌려야 함): 하이쿠', [b for b in todo if s['given'][str(b)]['pass'] == 1], '/ 소네트', [b for b in todo if s['given'][str(b)]['pass'] == 3]); status()
 
 def recheck(size):
-    res = load_results(); s = state(); out = {k for v in s['given'].values() if v['pass'] == 2 for k in v['keys']}
-    items = [(None, k) for k, r in res.items() if 1 in r and 2 not in r and k not in out and (r[1]['v'] == 'Y' or r[1]['conf'] == 'low')]
-    ids = make_batches(items, size, 2); print('2차 확인 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(items)))
+    """2차 확인 묶음(소네트가 본다). 1차(하이쿠)가 '있음'이거나 '확신 낮음'인 동. 기록상 pass 번호는 3이다(2는 예전 하이쿠 2차)."""
+    res = load_results(); s = state(); out = {k for v in s['given'].values() if v['pass'] == 3 for k in v['keys']}
+    items = [(None, k) for k, r in res.items() if 1 in r and 3 not in r and k not in out and (r[1]['v'] == 'Y' or r[1]['conf'] == 'low')]
+    ids = make_batches(items, size, 3); print('2차(소네트) 확인 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(items)))
 
 def verify3(code, size):
     """상위 모델(소네트) 확인용 3차 묶음: 지정한 시군구에서 1차가 '있음'이거나 '확신 낮음'인 동"""
@@ -100,7 +102,8 @@ def status():
     c = collections.Counter()
     for k, r in res.items():
         if 1 in r: c['1차 완료'] += 1; c['1차 있음' if r[1]['v'] == 'Y' else '1차 없음'] += 1
-        if 2 in r: c['2차 완료'] += 1; c['1·2차 모두 있음' if r[1]['v'] == 'Y' and r[2]['v'] == 'Y' else '1·2차 엇갈림' if r[1]['v'] != r[2]['v'] else '1·2차 모두 없음'] += 1
+        if 3 in r: c['소네트 확인 완료'] += 1; c['소네트도 있음(자가용 추정)' if r[3]['v'] == 'Y' else '소네트는 없음'] += 1
+        if 2 in r: c['(예전) 하이쿠 2차 완료'] += 1; c['1·2차 모두 있음' if r[1]['v'] == 'Y' and r[2]['v'] == 'Y' else '1·2차 엇갈림' if r[1]['v'] != r[2]['v'] else '1·2차 모두 없음'] += 1
     print('대기열', len(q), '| 남은 1차', sum(1 for x in q if x[1] not in res), '|', dict(c))
 
 def score():
