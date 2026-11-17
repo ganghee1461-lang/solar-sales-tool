@@ -2,103 +2,81 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>태양광 영업툴</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>지붕 태양광 후보 · 진천군</title>
 <link href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css" rel="stylesheet">
 <script src="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js"></script>
-<script src="https://unpkg.com/@turf/turf@6/turf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
 <div id="app">
-  <aside id="sidebar">
-    <div class="header">
-      <h1>☀ 태양광 영업툴</h1>
-    </div>
+  <aside id="side">
+    <header>
+      <h1>지붕 태양광 후보</h1>
+      <p id="region">불러오는 중…</p>
+    </header>
 
-    <!-- 필터 -->
-    <div class="section">
-      <h3>필터</h3>
-      <label>지역</label>
-      <select id="sidoFilter">
-        <option value="">전체</option>
-      </select>
+    <section id="summary">
+      <div><b id="sumGroups">-</b><span>회사(묶음)</span></div>
+      <div><b id="sumArea">-</b><span>지붕 면적 ㎡</span></div>
+      <div><b id="sumCap">-</b><span>추정 용량 MW</span></div>
+    </section>
 
-      <label>최소 설비용량 <span id="capValue">100 kW</span></label>
-      <input type="range" id="capSlider" min="500" max="5000" value="1000" step="100">
-
-      <label>지붕 활용률 <span id="utilValue">50%</span></label>
-      <input type="range" id="utilSlider" min="0" max="100" value="100" step="5">
-
-      <label>㎡당 설비용량 <span id="kwValue">0.10 kW</span></label>
-      <input type="range" id="kwSlider" min="5" max="20" value="10" step="1">
-    </div>
-
-    <!-- 레이어 -->
-    <div class="section">
-      <h3>레이어</h3>
-      <label class="check"><input type="checkbox" id="layerBuildings" checked> 건물 폴리곤</label>
-    </div>
-
-    <!-- 결과 탭 -->
-    <div class="section results-section">
-      <div class="tabs">
-        <button class="tab active" data-tab="building">지붕형 (<span id="bldgCount">0</span>)</button>
-        <button class="tab" data-tab="bookmark">★ 북마크 (<span id="bmCount">0</span>)</button>
+    <details id="filters" open>
+      <summary>조건</summary>
+      <input type="search" id="q" placeholder="회사명·주소 검색">
+      <div class="row2">
+        <label>읍면
+          <select id="emd"><option value="">전체</option></select>
+        </label>
+        <label>기존 태양광
+          <select id="solMode">
+            <option value="exclude">있는 곳 제외</option>
+            <option value="all">전체 보기</option>
+            <option value="only">있는 곳만</option>
+          </select>
+        </label>
       </div>
+      <div id="uses" class="chips"></div>
+      <label class="sl">동 최소 면적 <b id="vMinA">500㎡</b>
+        <input type="range" id="minA" min="500" max="5000" step="100" value="500"></label>
+      <label class="sl">최소 추정 용량 <b id="vMinC">0kW</b>
+        <input type="range" id="minC" min="0" max="2000" step="50" value="0"></label>
+      <label class="sl">설치 가능 비율 <b id="vUtil">50%</b>
+        <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
+      <label class="sl">㎡당 설비용량 <b id="vKw">0.10kW</b>
+        <input type="range" id="kw" min="5" max="22" step="1" value="10"></label>
+      <p class="hint">추정 용량 = 지붕 면적 × 설치 가능 비율 × ㎡당 설비용량. 두 기준값은 가정이며 바꿀 수 있습니다.</p>
+    </details>
 
-      <div class="sort-bar">
-        <button id="sortBtn">설비용량 ↓</button>
-        <button id="exportBtn">엑셀 ↓</button>
-      </div>
-
-      <div id="resultsList"></div>
+    <div id="tabs">
+      <button data-tab="all" class="on">후보 <i id="cntAll">0</i></button>
+      <button data-tab="bm">관심 <i id="cntBm">0</i></button>
+      <button id="btnXlsx" title="현재 목록을 엑셀로 저장">엑셀</button>
     </div>
+    <ol id="list"></ol>
+    <footer id="src"></footer>
   </aside>
 
-  <main id="map-container">
-    <div class="map-controls">
-      <div class="map-type">
-        <button class="map-type-btn active" data-type="base">일반</button>
-        <button class="map-type-btn" data-type="satellite">위성</button>
-      </div>
-      <div class="legend">
-        <div><span class="dot blue"></span>공장/창고</div>
-        <div><span class="dot green"></span>무벽/축사</div>
-        <div><span class="dot red"></span>기설치</div>
-        <div><span class="dot yellow"></span>주차장</div>
-      </div>
-    </div>
+  <main>
     <div id="map"></div>
+    <div id="mapctl">
+      <button data-base="base" class="on">지도</button>
+      <button data-base="sat">항공사진</button>
+      <label><input type="checkbox" id="showSolar" checked> 기존 태양광 위치</label>
+    </div>
+    <div id="legend">
+      <span><i class="c1"></i>후보</span>
+      <span><i class="c2"></i>태양광 좌표가 지붕 위</span>
+      <span><i class="c3"></i>50m 안에 태양광</span>
+      <span><i class="dot"></i>태양광 시설</span>
+    </div>
+    <article id="detail" hidden></article>
+    <button id="toggleSide">목록</button>
   </main>
 </div>
-
-<!-- 로딩 -->
-<div id="loading" class="hidden">
-  <div class="spinner"></div>
-  <div id="loadingText">로딩 중...</div>
-</div>
-
-<!-- 토스트 -->
 <div id="toast"></div>
-
-<!-- 주소 검색 모달 -->
-<div id="addressModal" class="modal hidden">
-  <div class="modal-content">
-    <div class="modal-header">
-      <h3>주소 검색</h3>
-      <button id="closeAddrModal">✕</button>
-    </div>
-    <div class="modal-body">
-      <input type="text" id="addrSearchInput" placeholder="키워드 입력 (예: 삼성전자 천안)">
-      <button id="addrSearchBtn">검색</button>
-      <div id="addrResults"></div>
-    </div>
-  </div>
-</div>
-
 <script src="app.js"></script>
 </body>
 </html>
