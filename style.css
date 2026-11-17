@@ -71,7 +71,7 @@ main{flex:1;position:relative;min-width:0}
 #toggleSide{display:none}
 
 /* 건물 옆 팝업 */
-.card .maplibregl-popup-content{padding:14px 16px 12px;border-radius:14px;box-shadow:0 10px 30px rgba(16,24,40,.28);font-family:inherit;width:264px;border:2px solid #fdb022}
+.card .maplibregl-popup-content{padding:14px 16px 12px;border-radius:14px;box-shadow:0 10px 30px rgba(16,24,40,.28);font-family:inherit;width:264px}
 .card .maplibregl-popup-tip{display:none}
 .card .maplibregl-popup-close-button{font-size:20px;width:30px;height:30px;color:var(--sub);border-radius:50%;top:4px;right:4px}
 .card h2{margin:0 24px 2px 0;font-size:15px;letter-spacing:-.3px;line-height:1.3}

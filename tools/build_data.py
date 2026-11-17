@@ -100,13 +100,13 @@ def juso_lines(prefix):
 
 def load_juso_base():
     """도로명 코드->이름, 시군구 코드<->이름, 법정동 코드<->이름"""
-    p = os.path.join(JCACHE, 'base.pkl')
+    p = os.path.join(JCACHE, 'base2.pkl')
     if os.path.exists(p): return pickle.load(open(p, 'rb'))
-    road = {}; sgg = {}; bjd = {}
+    road = {}; sgg = {}; bjd = {}; remd = collections.defaultdict(collections.Counter)
     for c in juso_lines('rnaddrkor_'):
         if len(c) < 14: continue
-        road[c[9]] = c[10]; sgg[c[1][:5]] = (c[2], c[3]); bjd[c[1]] = (c[4], c[5])
-    d = {'road': road, 'sgg': sgg, 'bjd': bjd}; pickle.dump(d, open(p, 'wb')); return d
+        road[c[9]] = c[10]; sgg[c[1][:5]] = (c[2], c[3]); bjd[c[1]] = (c[4], c[5]); remd[c[9]][c[4]] += 1
+    d = {'road': road, 'sgg': sgg, 'bjd': bjd, 'road_emd': {k: v.most_common(1)[0][0] for k, v in remd.items()}}; pickle.dump(d, open(p, 'wb')); return d
 
 def addr_keys(sgg5, rest, J):
     """주소의 시군구 뒷부분 -> (도로명 열쇠, 지번 열쇠). 도로명 열쇠=(도로명코드, 본번, 부번), 지번 열쇠=(법정동코드, 산, 번지, 호)"""
@@ -310,6 +310,7 @@ def build(arg):
         bs = [cand[i] for i in m]; big = max(bs, key=lambda b: b['area_m2']); a = big['attrs']; lon, lat = to_ll(*big['c'])
         emd, ri = J['bjd'].get(a['BJCD'], ('', ''))
         if not emd: emd = J['emd8'].get(a['BJCD'][:8], '')
+        if not emd and 'rk' in big: emd = J['road_emd'].get(big['rk'][0], '')      # 도로가 가장 많이 지나는 읍면동(근사)
         if 'rk' in big and big['rk'][0] in J['road']:
             ad = '%s %s %s %s %d%s' % (sido, sgname, emd if emd[-1:] in '읍면' else '', J['road'][big['rk'][0]], big['rk'][1], '-%d' % big['rk'][2] if big['rk'][2] else '')
         else: ad = '%s %s %s %s' % (sido, sgname, emd, ri)
