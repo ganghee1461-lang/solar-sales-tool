@@ -25,7 +25,22 @@ USE_OK = {'BDS015', 'BDS016'}       # 공장, 창고시설
 MIN_GROUP_AREA = 667.0              # 회사 전체 지붕이 이보다 작으면 싣지 않는다(설치 비율 50%, ㎡당 0.30kW 기준 100kW)
 LINK_M = 500.0                      # 같은 이름 건물을 한 사업장으로 묶는 거리
 CF_YEARS = 3                        # 이용률 평균에 쓰는 최근 연도 수
-USE_PHOTO = False                   # 사진 판독(자가용 추정) 결과는 전국 기준이 같아질 때까지 웹에 쓰지 않는다 (2026-11-18 결정)
+USE_PHOTO = True                    # 사진 판독(자가용 추정) 결과를 기존 태양광에 더한다 (2026-11-18 사용자 결정으로 켬)
+_PHOTO = None
+def photo_keys(code):
+    """패널이 보이는 동의 고유번호. 상위 모델이 직접 확인한 시군구 파일(진천)이 있으면 그걸, 없으면 전국 판독에서 소네트까지 '있음'인 동."""
+    global _PHOTO
+    pp = os.path.join(GIS, '지붕사진/판독/패널있음_%s_고유번호.json' % code)
+    if os.path.exists(pp): return set(json.load(open(pp, encoding='utf-8'))['패널있음'])
+    if _PHOTO is None:
+        last = {}
+        rf = os.path.join(GIS, '지붕사진/판독/전국/결과.jsonl')
+        if os.path.exists(rf):
+            for l in open(rf, encoding='utf-8'):
+                d = json.loads(l)
+                if d['pass'] == 3: last[d['k']] = d['v']
+        _PHOTO = {k for k, v in last.items() if v == 'Y'}
+    return _PHOTO
 KPX = {'11': '서울', '26': '부산', '27': '대구', '28': '인천', '29': '광주', '30': '대전', '31': '울산', '36': '세종', '41': '경기도', '43': '충청북도',
        '44': '충청남도', '46': '전라남도', '47': '경상북도', '48': '경상남도', '50': '제주도', '51': '강원도', '52': '전라북도'}
 # 건물 자료는 광주·전남이 예전 코드(29, 46)이고 도로명주소 자료는 통합 코드(12)라서 이름으로 맞춘 대조표
@@ -286,12 +301,11 @@ def build(arg):
     for rk, jk, rec in P['noxy'].get(code, ()):
         hit = by_road.get(rk or P['jmap'].get(jk))
         if hit: b = max(hit, key=lambda b: b['area_m2']); b['sol'] = True; gsol[b['gid']].append(rec)
-    # 2-1) 사진 판독 결과 (지금은 쓰지 않음: USE_PHOTO)
-    pp = os.path.join(GIS, '지붕사진/판독/패널있음_%s_고유번호.json' % code)
-    if USE_PHOTO and os.path.exists(pp):
-        ks = set(json.load(open(pp, encoding='utf-8'))['패널있음'])
+    # 2-1) 사진 판독 결과(자가용 추정): 등록되지 않았지만 항공사진에 패널이 보이는 동
+    if USE_PHOTO:
+        ks = photo_keys(code)
         for b in gb:
-            if b['k'] in ks: b['ph'] = True
+            if b['k'] in ks and not b.get('sol'): b['ph'] = True
     # 3) 공장등록(전화번호): 도로명 주소가 같은 건물, 없으면 같은 법정동에서 이름이 같은 건물
     greg = collections.defaultdict(list); rs = collections.Counter()
     for r in P['regs'].get(code, ()):
@@ -327,6 +341,8 @@ def build(arg):
         g = {'id': gid, 'nm': mapnm or (rr[0]['nm'] if rr else ''), 'emd': emd, 'ad': ad, 'c': [lon, lat],
              'n': len(rem), 'a': round(sum(b['area_m2'] for b in rem)), 'nt': len(bs), 'at': round(sum(b['area_m2'] for b in bs)),
              'st': 'on' if not rem else 'part' if inst else 'none', 'sn': len(so), 'skw': round(sum(s[0] for s in so), 1)}
+        pn = sum(1 for b in bs if b.get('ph'))       # 사진 판독으로 더한 동 수
+        if pn: g['pn'] = pn
         if rr:
             top = next((r for r in rr if r['tel']), rr[0])      # 번호가 있는 등록 건을 우선
             g['tel'] = top['tel']; g['own'] = top['own']

@@ -166,7 +166,7 @@ function card(g) {
     <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
     <dl>
       <dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>
-      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동 제외<small>판매용(등록) ${g.sn}건 · ${num(g.skw)}kW</small></dd>` : '<dd class="off">등록 없음</dd>'}
+      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동 제외<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
       <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
       <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
       <dt>대표번호</dt>${tel ? `<dd>${tel}</dd>` : '<dd class="off">미확인</dd>'}
