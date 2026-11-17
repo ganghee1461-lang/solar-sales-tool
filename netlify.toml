@@ -1,0 +1,4 @@
+# 이 사이트는 Cloudflare Pages 로 배포한다. Netlify 에서는 빌드를 건너뛰어 크레딧을 쓰지 않게 한다.
+# (Netlify 사이트 연결을 끊거나 지우면 이 파일은 필요 없다)
+[build]
+  ignore = "exit 0"
