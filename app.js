@@ -51,6 +51,11 @@ function addLayers() {
     paint: { 'line-color': '#000', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 4, 17, 5.5] } });
   map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' },
     paint: { 'line-color': sat ? LINE_SAT : LINE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, sat ? 2 : 1.6, 17, sat ? 3 : 2.4] } });
+  // 기존 태양광이라 후보에서 빠진 곳: 목록·합계에는 없고 지도에만 흐린 테두리로 남긴다
+  map.addSource('x', { type: 'geojson', data: EMPTY });
+  map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': COLOR, 'fill-opacity': 0.08 } });
+  map.addLayer({ id: 'x-line', type: 'line', source: 'x', layout: { 'line-join': 'round' },
+    paint: { 'line-color': sat ? LINE_SAT : COLOR, 'line-opacity': 0.75, 'line-dasharray': [3, 2], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.5, 14, 1.3, 17, 2] } });
   map.addSource('s', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 's-pt', type: 'circle', source: 's', minzoom: 13,
     paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2.5, 16, 5], 'circle-color': '#101828', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
@@ -62,14 +67,16 @@ function addLayers() {
   drawMap();
 }
 map.on('load', addLayers);
-map.on('click', 'b-fill', e => { const g = groups[e.features[0].properties.g]; if (g) select(g); });
-['b-fill'].forEach(l => { map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', l, () => map.getCanvas().style.cursor = ''); });
+['b-fill', 'x-fill'].forEach(l => map.on('click', l, e => { const g = groups[e.features[0].properties.g]; if (g) select(g); }));
+['b-fill', 'x-fill'].forEach(l => { map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', l, () => map.getCanvas().style.cursor = ''); });
 
 function drawMap() {
   if (!map.getSource('b') || !bldg) return;
   const ok = new Set(view.map(g => g.id));
   if (selected) ok.add(selected.id);
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g)) });
+  const ex = new Set(f.sol === 'exclude' ? groups.filter(g => g.st !== 'none' && !ok.has(g.id) && (!f.emd || g.emd === f.emd)).map(g => g.id) : []);
+  map.getSource('x').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ex.has(x.properties.g)) });
   map.getSource('s').setData(solar);
   map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
   // 선택한 곳이 있으면 나머지는 흐리게
