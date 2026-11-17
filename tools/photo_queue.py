@@ -7,7 +7,7 @@
   python3 tools/photo_queue.py recheck 30       1차에서 '있음' 또는 '확신 낮음'인 동을 2차 확인 묶음(묶음당 30장)으로 만듦
   python3 tools/photo_queue.py status           진행률
 """
-import sys, os, json, glob, collections
+import sys, os, json, glob, collections, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 B = os.path.expanduser('~/클로드코드/업무/GIS 자료/지붕사진'); T = os.path.join(B, '대상'); IMG = os.path.join(B, 'img'); Q = os.path.join(B, '판독/전국')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -58,7 +58,7 @@ def make_batches(items, size, ps):
     for i in range(0, len(items), size):
         bid = s['next_batch']; s['next_batch'] += 1; part = items[i:i + size]
         open(os.path.join(Q, 'batch_%05d.txt' % bid), 'w').write('\n'.join(imgpath(k) for _, k in part))
-        s['given'][str(bid)] = {'pass': ps, 'keys': [k for _, k in part]}; ids.append(bid)
+        s['given'][str(bid)] = {'pass': ps, 'keys': [k for _, k in part], 'ts': time.time()}; ids.append(bid)
     save_state(s); return ids
 
 COLOR_PANEL = 0.02; COLOR_EDGE = 12      # 색 걸러내기 기준: 어두운 푸른색 픽셀 비율과 무늬(경계) 세기가 둘 다 이보다 낮으면 패널 없음으로 본다
@@ -106,8 +106,9 @@ def merge():
                 if not isinstance(r, dict) or r.get('v') not in ('Y', 'N'): continue
                 out.write(json.dumps({'k': k, 'pass': v['pass'], 'v': r['v'], 'cover': r.get('cover'), 'conf': r.get('conf'), 'batch': int(bid)}, ensure_ascii=False) + '\n')
             del s['given'][bid]; os.rename(rp, rp + '.done'); done += 1
-    save_state(s); todo = sorted(int(b) for b in s['given'])
-    print('합친 묶음', done, '| 결과 없는 묶음(다시 돌려야 함): 하이쿠', [b for b in todo if s['given'][str(b)]['pass'] == 1], '/ 소네트', [b for b in todo if s['given'][str(b)]['pass'] == 3]); status()
+    save_state(s); now = time.time()
+    old = sorted(int(b) for b, v in s['given'].items() if now - v.get('ts', 0) > 900); new = sorted(int(b) for b, v in s['given'].items() if now - v.get('ts', 0) <= 900)
+    print('합친 묶음', done, '| 15분 넘게 결과 없는 묶음(다시 맡길 것): 하이쿠', [b for b in old if s['given'][str(b)]['pass'] == 1], '/ 소네트', [b for b in old if s['given'][str(b)]['pass'] == 3], '| 아직 도는 중(건드리지 말 것):', new); status()
 
 def recheck(size):
     """2차 확인 묶음(소네트가 본다). 1차(하이쿠)가 '있음'이거나 '확신 낮음'인 동. 기록상 pass 번호는 3이다(2는 예전 하이쿠 2차)."""
