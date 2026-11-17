@@ -24,7 +24,7 @@ def state(): return json.load(open(SF)) if os.path.exists(SF) else {'next_batch'
 def save_state(s): json.dump(s, open(SF, 'w'))
 def imgpath(k): return os.path.join(IMG, k.replace(':', '_') + '.jpg')
 
-ORDER = ['43750', '43', '44', '36', '30', '41']      # 판독 순서: 진천(정확도 확인용) -> 충북 -> 충남 -> 세종 -> 대전 -> 경기 -> 나머지
+ORDER = ['43750', '43', '36', '30', '44', '41', '51', '47', '52']      # 판독 순서: 진천(정확도 확인용) -> 충북 -> 인근(세종, 대전, 충남, 경기, 강원, 경북, 전북) -> 나머지
 
 def plan(sido, minkw):
     res = load_results(); q = []
