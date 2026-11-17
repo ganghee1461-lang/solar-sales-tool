@@ -88,6 +88,13 @@ def recheck(size):
     items = [(None, k) for k, r in res.items() if 1 in r and 2 not in r and k not in out and (r[1]['v'] == 'Y' or r[1]['conf'] == 'low')]
     ids = make_batches(items, size, 2); print('2차 확인 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(items)))
 
+def verify3(code, size):
+    """상위 모델(소네트) 확인용 3차 묶음: 지정한 시군구에서 1차가 '있음'이거나 '확신 낮음'인 동"""
+    keys = {b['k'] for b in json.load(open(os.path.join(T, code + '.json'), encoding='utf-8'))}; res = load_results(); s = state()
+    out = {k for v in s['given'].values() if v['pass'] == 3 for k in v['keys']}
+    items = [(None, k) for k in sorted(keys) if k in res and 1 in res[k] and 3 not in res[k] and k not in out and (res[k][1]['v'] == 'Y' or res[k][1]['conf'] == 'low')]
+    ids = make_batches(items, size, 3); print('3차(상위 모델) 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(items)))
+
 def status():
     res = load_results(); q = json.load(open(QF)) if os.path.exists(QF) else []
     c = collections.Counter()
@@ -100,8 +107,9 @@ def score():
     """진천은 상위 모델이 직접 확인한 정답이 있다. 하이쿠 판정(1차, 그리고 1·2차 모두 '있음')이 얼마나 맞는지 잰다."""
     truth = set(json.load(open(os.path.join(B, '판독/패널있음_43750_고유번호.json'), encoding='utf-8'))['패널있음'])
     keys = {b['k'] for b in json.load(open(os.path.join(T, '43750.json'), encoding='utf-8'))}; res = load_results()
-    for name, pred in (('1차만', lambda r: r[1]['v'] == 'Y'), ('1·2차 모두 있음', lambda r: r[1]['v'] == 'Y' and 2 in r and r[2]['v'] == 'Y')):
-        ks = [k for k in keys if k in res and 1 in res[k] and (name == '1차만' or res[k][1]['v'] == 'N' and res[k][1]['conf'] != 'low' or 2 in res[k])]
+    for name, ps, pred in (('1차만', 0, lambda r: r[1]['v'] == 'Y'), ('1·2차 모두 있음', 2, lambda r: r[1]['v'] == 'Y' and 2 in r and r[2]['v'] == 'Y'),
+                           ('1차 하이쿠 + 3차 상위 모델', 3, lambda r: 3 in r and r[3]['v'] == 'Y')):
+        ks = [k for k in keys if k in res and 1 in res[k] and (ps == 0 or res[k][1]['v'] == 'N' and res[k][1]['conf'] != 'low' or ps in res[k])]
         tp = sum(1 for k in ks if pred(res[k]) and k in truth); fp = sum(1 for k in ks if pred(res[k]) and k not in truth); fn = sum(1 for k in ks if not pred(res[k]) and k in truth)
         print('%s: 판독 %d동 | 있음 판정 %d (맞음 %d, 오판 %d) | 놓침 %d | 정밀도 %s 재현율 %s' % (name, len(ks), tp + fp, tp, fp, fn,
               '%.0f%%' % (100 * tp / (tp + fp)) if tp + fp else '-', '%.0f%%' % (100 * tp / (tp + fn)) if tp + fn else '-'))
@@ -113,4 +121,5 @@ if __name__ == '__main__':
     elif a[0] == 'merge': merge()
     elif a[0] == 'recheck': recheck(int(a[1]))
     elif a[0] == 'score': score()
+    elif a[0] == 'verify3': verify3(a[1], int(a[2]))
     else: status()
