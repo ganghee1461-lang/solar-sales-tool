@@ -81,8 +81,8 @@ function drawMap() {
 // ===== 계산과 조건 =====
 function calc(g) {
   g._cap = g.a * f.util * f.kw;                   // 추정 설비용량 kW
-  g._cf = g.ey ? g.ey / 8760 : null;              // 이용률
-  g._gen = g.ey ? g._cap * g.ey / 1000 : null;    // 연간 발전량 MWh
+  g._cf = meta.cf.pct / 100;                      // 이용률(전력거래소 시도 실적)
+  g._gen = g._cap * g._cf * 8760 / 1000;          // 연간 발전량 MWh
 }
 function apply() {
   groups.forEach(calc);
@@ -118,7 +118,7 @@ $('list').addEventListener('click', e => { const li = e.target.closest('li[data-
 
 // ===== 선택과 팝업 =====
 function card(g) {
-  const tip = g.ey ? `PVGIS(EU 공동연구센터) · 인근 격자점 ${g.gp.split(',').reverse().join(', ')} (5km 간격) · 연 ${num(g.ey)}kWh/kW · 경사 ${meta.pv.tilt}°·정남·손실 ${meta.pv.loss}% 가정` : '';
+  const c = meta.cf, tip = `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})`;
   const tel = g.tel ? `<a href="tel:${esc(g.tel.replace(/[^0-9+]/g, ''))}">${esc(g.tel)}</a>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>

@@ -34,7 +34,16 @@ LINK_M = 500.0                      # 같은 이름 건물을 한 사업장으�
 NEAR_M = 50.0                       # 태양광 좌표가 건물 밖일 때 '근처'로 보는 거리
 REG_NAME_M = 300.0                  # 공장등록 주소와 이름이 같은 건물을 찾는 거리
 REG_ADDR_M = 30.0                   # 이름이 달라도 같은 곳으로 보는 거리
-PV = {'tilt': 10, 'loss': 14}
+CF_YEARS = 3                        # 이용률 평균에 쓰는 최근 연도 수
+SIDO_KPX = {'강원특별자치도': '강원도', '전북특별자치도': '전라북도', '제주특별자치도': '제주도', '세종특별자치시': '세종'}
+
+def sido_cf(sido):
+    """전력거래소 시도별 태양광 실적 이용률의 최근 3개년 평균"""
+    d = json.load(open(os.path.join(GIS, '태양광이용률-전력거래소/연도별_태양광이용률.json'), encoding='utf-8'))['값']
+    key = SIDO_KPX.get(sido, sido)
+    if key not in d: key = re.sub(r'(특별시|광역시|특별자치시)$', '', key)
+    ys = sorted(d[key])[-CF_YEARS:]; vals = [float(d[key][y]) for y in ys]
+    return {'pct': round(sum(vals) / len(vals), 2), 'years': ys, 'vals': vals, 'area': key}
 
 # ---------- 좌표 변환 (EPSG:5179 <-> 경위도, GRS80) ----------
 A = 6378137.0; F = 1 / 298.257222101; K0 = 0.9996; LAT0 = math.radians(38); LON0 = math.radians(127.5); FE = 1e6; FN = 2e6
@@ -240,24 +249,11 @@ def build(reg):
         greg[hit['gid']].append({'nm': r['회사명'], 'tel': tel, 'own': r.get('보유구분', ''), 'how': how, 'ba': float(r.get('건축면적') or 0)})
     print('공장등록', len(regs), dict(rstat))
 
-    # 4) 이용률 (PVGIS, 0.05도 = 약 5km 격자. 수요처마다 가장 가까운 격자점 값을 쓴다)
-    pv = cache_load('pvgis.json'); step = 0.05
-    def ck(lon, lat): return '%.2f,%.2f' % (round(lon / step) * step, round(lat / step) * step)
+    # 4) 이용률: 전력거래소 실적(시도별, 최근 3개년 평균)
+    cf = sido_cf(reg['sido'])
     centers = {}
     for gid, (k, m) in enumerate(groups):
         centers[gid] = to_ll(*cand[max(m, key=lambda i: cand[i]['area_m2'])]['c'])
-    need = sorted({ck(*c) for c in centers.values()} - set(pv))
-    def pvcalc(key):
-        lon, lat = key.split(',')
-        r = http_json('https://re.jrc.ec.europa.eu/api/v5_3/PVcalc?lat=%s&lon=%s&peakpower=1&loss=%d&angle=%d&aspect=0&outputformat=json' % (lat, lon, PV['loss'], PV['tilt']))
-        try: return key, r['outputs']['totals']['fixed']['E_y']
-        except Exception: return key, None
-    print('  PVGIS 새로 조회', len(need), '곳')
-    if need:
-        with ThreadPoolExecutor(4) as ex:
-            for key, v in ex.map(pvcalc, need):
-                if v: pv[key] = v
-        cache_save('pvgis.json', pv)
 
     # 5) 주소 (묶음 대표 건물 위치)
     rg = cache_load('revgeo.json'); todo = [gid for gid in centers if '%f,%f' % centers[gid] not in rg]
@@ -280,7 +276,7 @@ def build(reg):
         mapnm = (big['attrs']['ANNO'] or big['attrs']['NAME']) if k[0] == 'N' else ''
         tok = (ad.get('jibun') or '').split()
         g = {'id': gid, 'nm': mapnm or (rr[0]['nm'] if rr else ''), 'emd': tok[2] if len(tok) > 2 else '', 'ad': ad.get('road') or ad.get('jibun') or '',
-             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)), 'ey': pv.get(ck(lon, lat)), 'gp': ck(lon, lat),
+             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)),
              'st': 'on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none', 'sn': len(so), 'skw': round(sum(s['kw'] for s in so), 1)}
         if rr:
             g['tel'] = rr[0]['tel']; g['own'] = rr[0]['own']
@@ -292,7 +288,7 @@ def build(reg):
     od = os.path.join(OUT, code); os.makedirs(od, exist_ok=True)
     def dump(name, obj):
         p = os.path.join(od, name); json.dump(obj, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); print(' ', code + '/' + name, round(os.path.getsize(p) / 1e6, 2), 'MB')
-    meta = {'code': code, 'sido': reg['sido'], 'name': reg['name'], 'pv': PV, 'solar_date': sdate, 'n_solar': len(sol),
+    meta = {'code': code, 'sido': reg['sido'], 'name': reg['name'], 'cf': cf, 'solar_date': sdate, 'n_solar': len(sol),
             'check': {'n_bldg': len(gb), 'area': round(sum(b['area_m2'] for b in gb)), 'n_group': len(G), 'solar': dict(stat), 'reg': dict(rstat)}}
     dump('info.json', {'meta': meta, 'groups': G})
     dump('bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
@@ -313,7 +309,7 @@ def main():
         print('search/%s.json' % sc, len(rows), '건', round(os.path.getsize(p) / 1e6, 2), 'MB')
     json.dump({'built': time.strftime('%Y-%m-%d'), 'regions': regions,
                'src': {'bldg': '브이월드 「건물」(국토지리정보원 연속수치지형도), 2026-10-01', 'solar': '전국태양광발전시설 표준데이터(공공데이터포털)',
-                       'pv': 'PVGIS 5.3 (PVGIS-ERA5, 2005~2023)', 'reg': '전국공장등록현황(한국산업단지공단), 2026-06 말'}},
+                       'pv': '전력거래소 전력통계정보시스템(EPSIS) 신재생에너지 이용률', 'reg': '전국공장등록현황(한국산업단지공단), 2026-06 말'}},
               open(os.path.join(OUT, 'regions.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
     print('regions.json', len(regions), '곳')
 
