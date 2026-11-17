@@ -331,6 +331,10 @@ def build(arg):
     def dump(name, obj): json.dump(obj, open(os.path.join(od, name), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
     dump('info.json', {'meta': {'code': code, 'sido': sido, 'name': sgname, 'cf': cf, 'solar_date': P['sdate']}, 'groups': G})
     dump('bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
+    # 사진 판독 대상 목록(저장소 밖): 건물 고유번호, 묶음, 면적, 등록 태양광 여부, 외곽선
+    td = os.path.join(GIS, '지붕사진/대상'); os.makedirs(td, exist_ok=True)
+    json.dump([{'k': b['k'], 'g': b['gid'], 'a': round(b['area_m2']), 'sol': bool(b.get('sol')), 'ring': f['geometry']['coordinates'][0]} for b, f in zip(gb, feats)],
+              open(os.path.join(td, code + '.json'), 'w', encoding='utf-8'), separators=(',', ':'))
     xs = [g['c'][0] for g in G]; ys2 = [g['c'][1] for g in G]; pre = (sido + ' ' + sgname).strip() + ' '
     return {'code': code, 'sido': sido, 'name': sgname or sido, 'n': len(G), 'bbox': [min(xs), min(ys2), max(xs), max(ys2)],
             'rows': [[g['nm'], g['ad'][len(pre):] if (g['ad'] + ' ').startswith(pre) else g['ad'], code, g['id'], g['at']] for g in G],
