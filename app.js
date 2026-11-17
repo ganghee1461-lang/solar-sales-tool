@@ -34,12 +34,15 @@ const map = new maplibregl.Map({ container: 'map', style: style('base'), center:
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
 const COLOR = ['match', ['get', 'st'], 'on', '#d92d20', 'near', '#f79009', '#0b7a6b'];
+const LINE = ['match', ['get', 'st'], 'on', '#7a271a', 'near', '#93370d', '#04443b'];   // 경계선용 짙은 색
 function addLayers() {
   if (!bldg || map.getSource('b')) return;
   const sat = base === 'sat';
   map.addSource('b', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
-  map.addLayer({ id: 'b-fill', type: 'fill', source: 'b', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.22 : 0.55 } });
-  map.addLayer({ id: 'b-line', type: 'line', source: 'b', paint: { 'line-color': sat ? '#ffffff' : COLOR, 'line-width': sat ? 1.5 : 1 } });
+  map.addLayer({ id: 'b-fill', type: 'fill', source: 'b', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.22 : 0.4 } });
+  // 건물 경계선: 일반지도에서는 짙은 색 굵은 선, 항공사진에서는 흰 선
+  map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' },
+    paint: { 'line-color': sat ? '#ffffff' : LINE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, 1.6, 17, 2.4] } });
   map.addSource('sel', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
   map.addLayer({ id: 'sel-line', type: 'line', source: 'sel', paint: { 'line-color': '#fdb022', 'line-width': 3.5 } });
   map.addSource('s', { type: 'geojson', data: solar });
@@ -136,7 +139,6 @@ function showDetail(g) {
     <h3>이용률 출처</h3>
     <p>${g.ey ? `PVGIS 5.3 (PVGIS-ERA5 기상자료, 2005~2023년 평균). 이 위치의 연간 발전량 ${num(g.ey)} kWh/kW를 8,760시간으로 나눈 값입니다. 경사 ${meta.pv_tilt}도, 정남향, 손실 ${meta.pv_loss}%를 가정했습니다.` : '이 위치의 값을 받지 못했습니다.'}</p>
     ${sol}
-    <a class="go" target="_blank" rel="noopener" href="https://map.kakao.com/link/map/${encodeURIComponent(gname(g))},${g.c[1]},${g.c[0]}">카카오맵에서 보기</a>
     <p class="warn">회사 이름은 지도 표기라 실제 소유자와 다를 수 있습니다. 용량은 추정치이며 지붕 하중, 그늘, 옥상 설비는 반영되지 않았습니다.</p>`;
   $('detail').hidden = false;
   $('detail').querySelector('.x').onclick = () => { $('detail').hidden = true; selected = null; drawMap(); drawList(); };
