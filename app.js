@@ -74,9 +74,11 @@ function drawMap() {
   if (!map.getSource('b') || !bldg) return;
   const ok = new Set(view.map(g => g.id));
   if (selected) ok.add(selected.id);
-  map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g)) });
-  const ex = new Set(f.sol === 'exclude' ? groups.filter(g => g.st === 'on' && !ok.has(g.id) && (!f.emd || g.emd === f.emd)).map(g => g.id) : []);
-  map.getSource('x').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ex.has(x.properties.g)) });
+  // 동 단위: 패널이 있는 동(st 'on')은 '제외' 조건일 때 후보에서 빼고 흐린 점선으로만 남긴다
+  const hide = f.sol === 'exclude';
+  map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g) && !(hide && x.properties.st === 'on')) });
+  const emdOk = new Set(groups.filter(g => !f.emd || g.emd === f.emd).map(g => g.id));
+  map.getSource('x').setData({ type: 'FeatureCollection', features: hide ? bldg.features.filter(x => x.properties.st === 'on' && emdOk.has(x.properties.g)) : [] });
   map.getSource('s').setData(solar);
   map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
   // 선택한 곳이 있으면 나머지는 흐리게
@@ -97,7 +99,7 @@ function apply() {
     if (f.emd && g.emd !== f.emd) return false;
     // '근처 태양광'은 실제로 없는 경우가 많아 후보로 남기고, 지붕 위에 확인된 곳만 제외한다
     if (f.sol === 'exclude' && g.st === 'on') return false;
-    if (f.sol === 'only' && g.st !== 'on') return false;
+    if (f.sol === 'only' && g.st === 'none') return false;
     return g._cap >= f.minC;
   }).sort((a, b) => b._cap - a._cap);
   $('sN').textContent = num(view.length);
@@ -109,9 +111,9 @@ function apply() {
 }
 function drawList() {
   const max = view.length ? view[0]._cap : 1;
-  const tag = g => g.st === 'on' ? '<span class="tag on">기존 태양광</span>' : g.st === 'near' ? '<span class="tag near">근처 태양광</span>' : '';
+  const tag = g => g.st === 'on' ? '<span class="tag on">기존 태양광</span>' : g.st === 'part' ? '<span class="tag on">일부 설치</span>' : g.nr ? '<span class="tag near">근처 태양광</span>' : '';
   $('list').innerHTML = view.slice(0, LIST_MAX).map((g, i) => `
-    <li data-id="${g.id}" class="${g.st}${selected && selected.id === g.id ? ' sel' : ''}">
+    <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : g.nr ? 'near' : 'none'}${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="rk">${i + 1}</span>
       <span class="nm">${esc(gname(g))}${tag(g)}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
@@ -132,10 +134,10 @@ function card(g) {
     <div class="ad">${esc(short(g.ad))}</div>
     <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
     <dl>
-      <dt>지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>
+      <dt>${g.st === 'part' ? '남은 지붕' : '지붕'}</dt><dd>${num(g.a)}㎡ · ${g.n}동${g.st !== 'none' ? `<small>전체 ${num(g.at)}㎡ · ${g.nt}동</small>` : ''}</dd>
       <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
       <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
-      <dt>기존 태양광</dt>${g.sn ? `<dd>${g.sn}건 · ${num(g.skw)}kW</dd>` : '<dd class="off">목록에 없음</dd>'}
+      <dt>기존 태양광</dt>${g.sn || g.ph ? `<dd>${[g.sn ? `목록 ${g.sn}건 · ${num(g.skw)}kW` : '', g.ph ? `사진 확인 ${g.ph}동` : ''].filter(Boolean).join('<br>')}</dd>` : '<dd class="off">없음</dd>'}
       <dt>대표번호</dt>${tel ? `<dd>${tel}</dd>` : '<dd class="off">미확인</dd>'}
     </dl>`;
 }

@@ -27,7 +27,7 @@ def get_tile(z, x, y):
             except Exception as e:
                 data = None; err = e
         if not data: raise RuntimeError(f'타일 실패 {z}/{x}/{y}: {err}')
-        open(p, 'wb').write(data)
+        tmp = p + '.%d.tmp' % os.getpid() + str(id(data)); open(tmp, 'wb').write(data); os.replace(tmp, p)   # 다 받은 뒤에 이름을 바꿔 깨진 타일을 막는다
     return Image.open(p).convert('RGB')
 
 def crop(feat, path):

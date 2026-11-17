@@ -223,10 +223,22 @@ def build(reg):
                 if d < best[0]: best = (d, gb[i])
             if best[1] is not None: hit = best[1]; how = 'near'
         rec = {'nm': s.get('solarGenFcltNm', ''), 'kw': float(s.get('capa') or 0), 'yr': s.get('instlYr', '')}
-        if hit is not None: gsolar[hit['gid']].append(dict(rec, how=how))
+        if hit is not None:
+            gsolar[hit['gid']].append(dict(rec, how=how))
+            if how == 'on': hit['sol'] = True          # 목록 좌표가 이 동 위에 있음
         stat[{'on': '후보 건물 위', 'near': '후보 건물 %dm 안' % NEAR_M, 'other': '후보 아닌 건물 위', 'none': '건물과 무관'}[how]] += 1
         spts.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [round(lon, 6), round(lat, 6)]}, 'properties': dict(rec, ad=raw)})
     print('태양광', len(sol), dict(stat))
+
+    # 2-1) 사진 판독 결과(목록에 없는 자가용 설비를 잡는다). 번호는 건물 순서라 동수가 다르면 쓰지 않는다
+    pp = os.path.join(GIS, '지붕사진/판독/최종_%s.json' % code); nph = 0
+    if os.path.exists(pp):
+        ph = json.load(open(pp, encoding='utf-8'))
+        if ph.get('건물수') == len(gb):
+            for i, b in enumerate(gb):
+                if ph['패널있음'].get(str(i)) == 'Y': b['ph'] = True; nph += 1
+        else: print('  ! 사진 판독 파일의 동수가 달라 쓰지 않음', ph.get('건물수'), len(gb))
+    print('  사진 판독 패널 있음', nph, '동 / 목록 좌표가 올라간 동', sum(1 for b in gb if b.get('sol')))
 
     # 3) 공장등록(전화번호) 연결
     rp = os.path.join(GIS, '공장등록-전국/가공', '%s_%s.json' % (reg['sido'], reg['name']))
@@ -276,15 +288,20 @@ def build(reg):
         mapnm = (big['attrs']['ANNO'] or big['attrs']['NAME']) if k[0] == 'N' else ''
         tok = (ad.get('jibun') or '').split()
         g = {'id': gid, 'nm': mapnm or (rr[0]['nm'] if rr else ''), 'emd': tok[2] if len(tok) > 2 else '', 'ad': ad.get('road') or ad.get('jibun') or '',
-             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)),
-             'st': 'on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none', 'sn': len(so), 'skw': round(sum(s['kw'] for s in so), 1)}
+             'c': [lon, lat]}
+        # 동 단위 판정: 목록 좌표가 올라갔거나 사진에 패널이 보이는 동은 설치된 것으로 보고, 남은 동만 후보 면적으로 센다
+        inst = [b for b in bs if b.get('sol') or b.get('ph')]; rem = [b for b in bs if not (b.get('sol') or b.get('ph'))]
+        on = [s for s in so if s['how'] == 'on']
+        g.update({'n': len(rem), 'a': round(sum(b['area_m2'] for b in rem)), 'nt': len(bs), 'at': round(sum(b['area_m2'] for b in bs)),
+                  'st': 'on' if not rem else 'part' if inst else 'none', 'sn': len(on), 'skw': round(sum(s['kw'] for s in on), 1),
+                  'ph': sum(1 for b in inst if not b.get('sol')), 'nr': len(so) - len(on)})
         if rr:
             g['tel'] = rr[0]['tel']; g['own'] = rr[0]['own']
             if mapnm and not same_name(mapnm, rr[0]['nm']): g['telnm'] = rr[0]['nm']     # 번호 주인이 지도 표기와 다를 때만 표시
             if len(rr) > 1: g['regn'] = len(rr)
         G.append(g)
     feats = [{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]},
-              'properties': {'g': b['gid'], 'st': G[b['gid']]['st']}} for b in gb]
+              'properties': {'g': b['gid'], 'st': 'on' if (b.get('sol') or b.get('ph')) else 'near' if G[b['gid']]['nr'] else 'none'}} for b in gb]
     od = os.path.join(OUT, code); os.makedirs(od, exist_ok=True)
     def dump(name, obj):
         p = os.path.join(od, name); json.dump(obj, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); print(' ', code + '/' + name, round(os.path.getsize(p) / 1e6, 2), 'MB')
@@ -297,7 +314,7 @@ def build(reg):
     xs = [g['c'][0] for g in G]; ys = [g['c'][1] for g in G]
     short = lambda a: re.sub(r'^\S+\s+%s\s*' % re.escape(reg['name']), '', a)
     return ({'code': code, 'sido': reg['sido'], 'name': reg['name'], 'n': len(G), 'bbox': [min(xs), min(ys), max(xs), max(ys)]},
-            [[g['nm'], short(g['ad']), code, g['id'], g['a']] for g in G])
+            [[g['nm'], short(g['ad']), code, g['id'], g['at']] for g in G])
 
 def main():
     os.makedirs(os.path.join(OUT, 'search'), exist_ok=True)
