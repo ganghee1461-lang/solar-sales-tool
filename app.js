@@ -75,7 +75,7 @@ function drawMap() {
   const ok = new Set(view.map(g => g.id));
   if (selected) ok.add(selected.id);
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g)) });
-  const ex = new Set(f.sol === 'exclude' ? groups.filter(g => g.st !== 'none' && !ok.has(g.id) && (!f.emd || g.emd === f.emd)).map(g => g.id) : []);
+  const ex = new Set(f.sol === 'exclude' ? groups.filter(g => g.st === 'on' && !ok.has(g.id) && (!f.emd || g.emd === f.emd)).map(g => g.id) : []);
   map.getSource('x').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ex.has(x.properties.g)) });
   map.getSource('s').setData(solar);
   map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
@@ -95,8 +95,9 @@ function apply() {
   groups.forEach(calc);
   view = groups.filter(g => {
     if (f.emd && g.emd !== f.emd) return false;
-    if (f.sol === 'exclude' && g.st !== 'none') return false;
-    if (f.sol === 'only' && g.st === 'none') return false;
+    // '근처 태양광'은 실제로 없는 경우가 많아 후보로 남기고, 지붕 위에 확인된 곳만 제외한다
+    if (f.sol === 'exclude' && g.st === 'on') return false;
+    if (f.sol === 'only' && g.st !== 'on') return false;
     return g._cap >= f.minC;
   }).sort((a, b) => b._cap - a._cap);
   $('sN').textContent = num(view.length);
