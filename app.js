@@ -10,7 +10,7 @@ const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
 const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
 let index = null;                          // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
-const f = { emd: '', sol: 'exclude', minC: 0, util: 0.5, sqm: 3.3 };   // sqm = 1kW당 필요 면적(㎡)
+const f = { emd: '', sol: 'exclude', minC: 0, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
 
 const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -39,14 +39,18 @@ map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom
 
 const COLOR = ['match', ['get', 'st'], 'on', '#d92d20', 'near', '#f79009', '#0b7a6b'];
 const LINE = ['match', ['get', 'st'], 'on', '#7a271a', 'near', '#93370d', '#04443b'];
+const LINE_SAT = ['match', ['get', 'st'], 'on', '#ff6b5e', 'near', '#ffb020', '#19f0c8'];   // 항공사진용 밝은 색
 const EMPTY = { type: 'FeatureCollection', features: [] };
 function addLayers() {
   if (map.getSource('b')) return;
   const sat = base === 'sat';
   map.addSource('b', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'b-fill', type: 'fill', source: 'b', paint: { 'fill-color': COLOR, 'fill-opacity': 0.4 } });
+  // 항공사진에서는 검은 바탕선 위에 밝은 색 선을 올려 흰 지붕·외벽과 구분한다
+  if (sat) map.addLayer({ id: 'b-case', type: 'line', source: 'b', layout: { 'line-join': 'round' },
+    paint: { 'line-color': '#000', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 4, 17, 5.5] } });
   map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' },
-    paint: { 'line-color': sat ? '#ffffff' : LINE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, 1.6, 17, 2.4] } });
+    paint: { 'line-color': sat ? LINE_SAT : LINE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, sat ? 2 : 1.6, 17, sat ? 3 : 2.4] } });
   map.addSource('s', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 's-pt', type: 'circle', source: 's', minzoom: 13,
     paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2.5, 16, 5], 'circle-color': '#101828', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
@@ -71,12 +75,12 @@ function drawMap() {
   // 선택한 곳이 있으면 나머지는 흐리게
   const sat = base === 'sat';
   map.setPaintProperty('b-fill', 'fill-opacity', selected ? (sat ? 0.08 : 0.14) : (sat ? 0.22 : 0.4));
-  map.setPaintProperty('b-line', 'line-opacity', selected ? 0.35 : 1);
+  map.setPaintProperty('b-line', 'line-opacity', selected ? (sat ? 0.9 : 0.35) : 1);
 }
 
 // ===== 계산과 조건 =====
 function calc(g) {
-  g._cap = g.a * f.util / f.sqm;                   // 추정 설비용량 kW
+  g._cap = g.a * f.util * f.kw;                   // 추정 설비용량 kW
   g._cf = g.ey ? g.ey / 8760 : null;              // 이용률
   g._gen = g.ey ? g._cap * g.ey / 1000 : null;    // 연간 발전량 MWh
 }
@@ -91,7 +95,7 @@ function apply() {
   $('sN').textContent = num(view.length);
   $('sCap').textContent = num(view.reduce((s, g) => s + g._cap, 0) / 1000, 1);
   $('sGen').textContent = num(view.reduce((s, g) => s + (g._gen || 0), 0) / 1000, 1);
-  $('basisNow').textContent = `${Math.round(f.util * 100)}% · 1kW당 ${f.sqm.toFixed(1)}㎡` + (f.minC ? ` · ${num(f.minC)}kW 이상` : '');
+  $('basisNow').textContent = `${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡` + (f.minC ? ` · ${num(f.minC)}kW 이상` : '');
   drawList(); drawMap();
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
@@ -114,7 +118,7 @@ $('list').addEventListener('click', e => { const li = e.target.closest('li[data-
 
 // ===== 선택과 팝업 =====
 function card(g) {
-  const tip = g.ey ? `PVGIS · 이 좌표 연 ${num(g.ey)}kWh/kW · 경사 ${meta.pv.tilt}°·정남·손실 ${meta.pv.loss}% 가정` : '';
+  const tip = g.ey ? `PVGIS(EU 공동연구센터) · 인근 격자점 ${g.gp.split(',').reverse().join(', ')} (5km 간격) · 연 ${num(g.ey)}kWh/kW · 경사 ${meta.pv.tilt}°·정남·손실 ${meta.pv.loss}% 가정` : '';
   const tel = g.tel ? `<a href="tel:${esc(g.tel.replace(/[^0-9+]/g, ''))}">${esc(g.tel)}</a>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>
@@ -227,7 +231,7 @@ function bind() {
   $('solMode').onchange = e => { f.sol = e.target.value; apply(); };
   const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); apply(); }; };
   sl('util', 'vUtil', v => f.util = v / 100, v => v + '%');
-  sl('sqm', 'vSqm', v => f.sqm = v, v => v.toFixed(1) + '㎡');
+  sl('kw', 'vKw', v => f.kw = v / 100, v => (v / 100).toFixed(2) + 'kW');
   sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
   document.querySelectorAll('#basemap button').forEach(b => b.onclick = () => {
     if (base === b.dataset.base) return;

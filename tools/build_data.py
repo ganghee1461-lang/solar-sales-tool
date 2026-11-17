@@ -240,7 +240,7 @@ def build(reg):
         greg[hit['gid']].append({'nm': r['회사명'], 'tel': tel, 'own': r.get('보유구분', ''), 'how': how, 'ba': float(r.get('건축면적') or 0)})
     print('공장등록', len(regs), dict(rstat))
 
-    # 4) 이용률 (PVGIS, 0.05도 격자)
+    # 4) 이용률 (PVGIS, 0.05도 = 약 5km 격자. 수요처마다 가장 가까운 격자점 값을 쓴다)
     pv = cache_load('pvgis.json'); step = 0.05
     def ck(lon, lat): return '%.2f,%.2f' % (round(lon / step) * step, round(lat / step) * step)
     centers = {}
@@ -252,6 +252,7 @@ def build(reg):
         r = http_json('https://re.jrc.ec.europa.eu/api/v5_3/PVcalc?lat=%s&lon=%s&peakpower=1&loss=%d&angle=%d&aspect=0&outputformat=json' % (lat, lon, PV['loss'], PV['tilt']))
         try: return key, r['outputs']['totals']['fixed']['E_y']
         except Exception: return key, None
+    print('  PVGIS 새로 조회', len(need), '곳')
     if need:
         with ThreadPoolExecutor(4) as ex:
             for key, v in ex.map(pvcalc, need):
@@ -279,7 +280,7 @@ def build(reg):
         mapnm = (big['attrs']['ANNO'] or big['attrs']['NAME']) if k[0] == 'N' else ''
         tok = (ad.get('jibun') or '').split()
         g = {'id': gid, 'nm': mapnm or (rr[0]['nm'] if rr else ''), 'emd': tok[2] if len(tok) > 2 else '', 'ad': ad.get('road') or ad.get('jibun') or '',
-             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)), 'ey': pv.get(ck(lon, lat)),
+             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)), 'ey': pv.get(ck(lon, lat)), 'gp': ck(lon, lat),
              'st': 'on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none', 'sn': len(so), 'skw': round(sum(s['kw'] for s in so), 1)}
         if rr:
             g['tel'] = rr[0]['tel']; g['own'] = rr[0]['own']
