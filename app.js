@@ -1,24 +1,26 @@
 // ===== 설정 =====
 const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';   // 배경지도용(도메인 제한 키)
-const LIST_MAX = 300;    // 목록에 한 번에 그리는 개수
-const HIT_MAX = 8;       // 검색 결과 개수
+const LIST_MAX = 300;          // 목록에 한 번에 그리는 개수
+const HIT_MAX = 8;             // 검색 결과 개수
+const HOME_REGION = '43750';   // 처음 열 때 보여줄 지역(진천군)
 
 // ===== 상태 =====
 let regions = [], region = null;           // 지역 목록, 지금 보는 지역
-let meta = {}, groups = [], bldg = null, solar = null;
+let meta = {}, groups = [], bldg = null;
 const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
 const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
-let index = null;                          // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
+let index = [], indexDone = false, indexBusy = null;   // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
-const f = { emd: '', sol: 'exclude', minC: 0, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
+const f = { emd: '', sol: 'exclude', minC: 100, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
 
 const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const gname = g => g.nm || '이름 없음';
-const short = a => region ? a.replace(new RegExp('^\\S+\\s+' + region.name + '\\s*'), '') : a;
+const short = a => { const p = region ? (region.sido + ' ' + (region.name === region.sido ? '' : region.name)).trim() + ' ' : ''; return (a + ' ').startsWith(p) ? a.slice(p.length) : a; };
 const mobile = () => innerWidth <= 760;
 const getJson = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
+const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
 // ===== 지도 =====
 function style(kind) {
@@ -37,28 +39,25 @@ function style(kind) {
 const map = new maplibregl.Map({ container: 'map', style: style('base'), center: [127.7, 36.3], zoom: 7, minZoom: 6, maxZoom: 19 });
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
-const COLOR = ['match', ['get', 'st'], 'on', '#d92d20', 'near', '#f79009', '#0b7a6b'];
-const LINE = ['match', ['get', 'st'], 'on', '#7a271a', 'near', '#93370d', '#04443b'];
-const LINE_SAT = ['match', ['get', 'st'], 'on', '#ff6b5e', 'near', '#ffb020', '#19f0c8'];   // 항공사진용 밝은 색
+// 색은 두 가지뿐: 후보(청록), 기존 태양광(빨강)
+const COLOR = ['match', ['get', 'st'], 'on', '#d92d20', '#0b7a6b'];
+const LINE = ['match', ['get', 'st'], 'on', '#7a271a', '#04443b'];
+const LINE_SAT = ['match', ['get', 'st'], 'on', '#ff6b5e', '#19f0c8'];   // 항공사진용 밝은 색
 const EMPTY = { type: 'FeatureCollection', features: [] };
+const W = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 10, a, 14, b, 17, c];
 function addLayers() {
   if (map.getSource('b')) return;
   const sat = base === 'sat';
+  // 후보 건물
   map.addSource('b', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'b-fill', type: 'fill', source: 'b', paint: { 'fill-color': COLOR, 'fill-opacity': 0.4 } });
-  // 항공사진에서는 검은 바탕선 위에 밝은 색 선을 올려 흰 지붕·외벽과 구분한다
-  if (sat) map.addLayer({ id: 'b-case', type: 'line', source: 'b', layout: { 'line-join': 'round' },
-    paint: { 'line-color': '#000', 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 1.6, 14, 4, 17, 5.5] } });
-  map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' },
-    paint: { 'line-color': sat ? LINE_SAT : LINE, 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.6, 14, sat ? 2 : 1.6, 17, sat ? 3 : 2.4] } });
-  // 기존 태양광이라 후보에서 빠진 곳: 목록·합계에는 없고 지도에만 흐린 테두리로 남긴다
+  if (sat) map.addLayer({ id: 'b-case', type: 'line', source: 'b', layout: { 'line-join': 'round' }, paint: { 'line-color': '#000', 'line-width': W(1.6, 4, 5.5) } });
+  map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' }, paint: { 'line-color': sat ? LINE_SAT : LINE, 'line-width': W(0.6, sat ? 2 : 1.6, sat ? 3 : 2.4) } });
+  // 기존 태양광이라 후보에서 빠진 동: 목록·합계에는 없고 지도에만 흐린 점선으로 남긴다
   map.addSource('x', { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': COLOR, 'fill-opacity': 0.08 } });
+  map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': '#d92d20', 'fill-opacity': 0.1 } });
   map.addLayer({ id: 'x-line', type: 'line', source: 'x', layout: { 'line-join': 'round' },
-    paint: { 'line-color': sat ? LINE_SAT : COLOR, 'line-opacity': 0.75, 'line-dasharray': [3, 2], 'line-width': ['interpolate', ['linear'], ['zoom'], 10, 0.5, 14, 1.3, 17, 2] } });
-  map.addSource('s', { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 's-pt', type: 'circle', source: 's', minzoom: 13,
-    paint: { 'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 2.5, 16, 5], 'circle-color': '#101828', 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } });
+    paint: { 'line-color': sat ? '#ff6b5e' : '#d92d20', 'line-opacity': 0.8, 'line-dasharray': [3, 2], 'line-width': W(0.5, 1.3, 2) } });
   // 선택한 곳: 진한 채움 + 노란 굵은 테두리
   map.addSource('sel', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'sel-fill', type: 'fill', source: 'sel', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.35 : 0.85 } });
@@ -67,58 +66,56 @@ function addLayers() {
   drawMap();
 }
 map.on('load', addLayers);
-['b-fill', 'x-fill'].forEach(l => map.on('click', l, e => { const g = groups[e.features[0].properties.g]; if (g) select(g); }));
-['b-fill', 'x-fill'].forEach(l => { map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', l, () => map.getCanvas().style.cursor = ''); });
+['b-fill', 'x-fill'].forEach(l => {
+  map.on('click', l, e => { const g = groups[e.features[0].properties.g]; if (g) select(g); });
+  map.on('mouseenter', l, () => map.getCanvas().style.cursor = 'pointer'); map.on('mouseleave', l, () => map.getCanvas().style.cursor = '');
+});
 
 function drawMap() {
   if (!map.getSource('b') || !bldg) return;
   const ok = new Set(view.map(g => g.id));
   if (selected) ok.add(selected.id);
-  // 동 단위: 패널이 있는 동(st 'on')은 '제외' 조건일 때 후보에서 빼고 흐린 점선으로만 남긴다
-  const hide = f.sol === 'exclude';
+  const hide = f.sol === 'exclude';   // 기존 태양광 동을 후보에서 뺄지
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g) && !(hide && x.properties.st === 'on')) });
   const emdOk = new Set(groups.filter(g => !f.emd || g.emd === f.emd).map(g => g.id));
   map.getSource('x').setData({ type: 'FeatureCollection', features: hide ? bldg.features.filter(x => x.properties.st === 'on' && emdOk.has(x.properties.g)) : [] });
-  map.getSource('s').setData(solar);
   map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
-  // 선택한 곳이 있으면 나머지는 흐리게
   const sat = base === 'sat';
-  map.setPaintProperty('b-fill', 'fill-opacity', selected ? (sat ? 0.08 : 0.14) : (sat ? 0.22 : 0.4));
+  map.setPaintProperty('b-fill', 'fill-opacity', selected ? (sat ? 0.08 : 0.14) : (sat ? 0.22 : 0.4));   // 선택한 곳이 있으면 나머지는 흐리게
   map.setPaintProperty('b-line', 'line-opacity', selected ? (sat ? 0.9 : 0.35) : 1);
 }
 
 // ===== 계산과 조건 =====
+// 추정 용량은 "후보 지붕"(기존 태양광이 올라간 동을 뺀 나머지 지붕)만으로 계산한다
 function calc(g) {
-  g._cap = g.a * f.util * f.kw;                   // 추정 설비용량 kW
-  g._cf = meta.cf.pct / 100;                      // 이용률(전력거래소 시도 실적)
-  g._gen = g._cap * g._cf * 8760 / 1000;          // 연간 발전량 MWh
+  g._cap = g.a * f.util * f.kw;                              // kW
+  g._cf = meta.cf ? meta.cf.pct / 100 : null;                // 이용률(전력거래소 시도 실적)
+  g._gen = g._cf ? g._cap * g._cf * 8760 / 1000 : null;      // 연간 발전량 MWh
 }
 function apply() {
   groups.forEach(calc);
   view = groups.filter(g => {
     if (f.emd && g.emd !== f.emd) return false;
-    // '근처 태양광'은 실제로 없는 경우가 많아 후보로 남기고, 지붕 위에 확인된 곳만 제외한다
-    if (f.sol === 'exclude' && g.st === 'on') return false;
+    if (f.sol === 'exclude' && g.st === 'on') return false;   // 모든 동에 태양광이 있는 곳만 뺀다
     if (f.sol === 'only' && g.st === 'none') return false;
-    return g._cap >= f.minC;
+    return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
   }).sort((a, b) => b._cap - a._cap);
   $('sN').textContent = num(view.length);
   $('sCap').textContent = num(view.reduce((s, g) => s + g._cap, 0) / 1000, 1);
   $('sGen').textContent = num(view.reduce((s, g) => s + (g._gen || 0), 0) / 1000, 1);
-  $('basisNow').textContent = `${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡` + (f.minC ? ` · ${num(f.minC)}kW 이상` : '');
+  $('basisNow').textContent = `${num(f.minC)}kW 이상 · ${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡`;
   drawList(); drawMap();
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
 function drawList() {
   const max = view.length ? view[0]._cap : 1;
-  const tag = g => g.st === 'on' ? '<span class="tag on">기존 태양광</span>' : g.st === 'part' ? '<span class="tag on">일부 설치</span>' : g.nr ? '<span class="tag near">근처 태양광</span>' : '';
   $('list').innerHTML = view.slice(0, LIST_MAX).map((g, i) => `
-    <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : g.nr ? 'near' : 'none'}${selected && selected.id === g.id ? ' sel' : ''}">
+    <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : ''}${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="rk">${i + 1}</span>
-      <span class="nm">${esc(gname(g))}${tag(g)}</span>
+      <span class="nm">${esc(gname(g))}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
-      <span class="ar">${num(g.a)}㎡ · ${g.n}동</span>
+      <span class="ar">${num(g.a)}㎡ · ${g.n}동${g.nt > g.n ? ` <em>기존 ${g.nt - g.n}동 제외</em>` : ''}</span>
       <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
     </li>`).join('')
     + (view.length > LIST_MAX ? `<li class="msg">용량 큰 순으로 ${LIST_MAX}곳까지 표시 (전체 ${num(view.length)}곳)</li>` : '')
@@ -128,16 +125,17 @@ $('list').addEventListener('click', e => { const li = e.target.closest('li[data-
 
 // ===== 선택과 팝업 =====
 function card(g) {
-  const c = meta.cf, tip = `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})`;
+  const c = meta.cf, tip = c ? `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})` : '';
   const tel = g.tel ? `<a href="tel:${esc(g.tel.replace(/[^0-9+]/g, ''))}">${esc(g.tel)}</a>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
+  const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>
-    <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
+    <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>${ex ? '남은 지붕 기준' : '추정 용량'}</span></div>
     <dl>
-      <dt>${g.st === 'part' ? '남은 지붕' : '지붕'}</dt><dd>${num(g.a)}㎡ · ${g.n}동${g.st !== 'none' ? `<small>전체 ${num(g.at)}㎡ · ${g.nt}동</small>` : ''}</dd>
+      <dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>
+      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동 제외<small>등록 ${g.sn}건 · ${num(g.skw)}kW</small></dd>` : '<dd class="off">등록 없음</dd>'}
       <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
       <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
-      <dt>기존 태양광</dt>${g.sn || g.ph ? `<dd>${[g.sn ? `목록 ${g.sn}건 · ${num(g.skw)}kW` : '', g.ph ? `사진 확인 ${g.ph}동` : ''].filter(Boolean).join('<br>')}</dd>` : '<dd class="off">없음</dd>'}
       <dt>대표번호</dt>${tel ? `<dd>${tel}</dd>` : '<dd class="off">미확인</dd>'}
     </dl>`;
 }
@@ -166,51 +164,55 @@ function markList() {
 
 // ===== 지역 =====
 async function loadRegion(code) {
-  const r = regions.find(x => x.code === code) || regions[0];
+  const r = regions.find(x => x.code === code) || regions.find(x => x.code === HOME_REGION) || regions[0];
   if (!cache.has(r.code)) {
-    const [a, b, s] = await Promise.all(['info.json', 'bldg.geojson', 'solar.geojson'].map(n => getJson(`data/${r.code}/${n}`)));
-    cache.set(r.code, { a, b, s });
+    $('list').innerHTML = '<li class="msg">불러오는 중…</li>';
+    const [a, b] = await Promise.all(['info.json', 'bldg.geojson'].map(n => getJson(`data/${r.code}/${n}`)));
+    cache.set(r.code, { a, b });
   }
   const d = cache.get(r.code);
   clearSelection();
-  region = r; meta = d.a.meta; groups = d.a.groups; bldg = d.b; solar = d.s;
+  region = r; meta = d.a.meta; groups = d.a.groups; bldg = d.b;
   byGroup.clear();
   bldg.features.forEach(x => { const g = x.properties.g; if (!byGroup.has(g)) byGroup.set(g, []); byGroup.get(g).push(x); });
   $('region').value = r.code;
   f.emd = '';
   $('emd').innerHTML = '<option value="">읍면동 전체</option>' + [...new Set(groups.map(g => g.emd).filter(Boolean))].sort().map(e => `<option>${esc(e)}</option>`).join('');
-  history.replaceState(null, '', '#' + r.code);
+  history.replaceState(null, '', '#' + r.code); store.set('roofpv_region', r.code);
   apply();
   map.fitBounds([[r.bbox[0], r.bbox[1]], [r.bbox[2], r.bbox[3]]], { padding: 40, duration: 0 });
 }
 
 // ===== 통합 검색 (회사·주소·지역) =====
-async function loadIndex() {
-  if (index) return index;
-  const sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))];
-  index = (await Promise.all(sidos.map(s => getJson(`data/search/${s}.json`).catch(() => [])))).flat();
-  return index;
+// 색인은 시도별 파일이다. 지금 보는 시도부터 받고 나머지는 이어서 받는다. 받는 대로 검색 결과에 반영된다.
+function loadIndex() {
+  if (indexBusy) return indexBusy;
+  const cur = region ? region.code.slice(0, 2) : '', sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))].sort((a, b) => (b === cur) - (a === cur));
+  indexBusy = (async () => {
+    for (const s of sidos) { index = index.concat(await getJson(`data/search/${s}.json`).catch(() => [])); if (!$('hits').hidden || $('q').value.trim().length >= 2) search(); }
+    indexDone = true; if ($('q').value.trim().length >= 2) search();
+  })();
+  return indexBusy;
 }
 let hits = [], act = 0;
-async function search() {
+function search() {
   const q = $('q').value.trim().toLowerCase(), box = $('hits');
   if (q.length < 2) { box.hidden = true; return; }
-  const ix = await loadIndex();
-  if ($('q').value.trim().toLowerCase() !== q) return;   // 그사이 글자가 바뀌었으면 버림
-  const rname = c => { const r = regions.find(x => x.code === c); return r ? r.name : ''; };
-  hits = regions.filter(r => (r.sido + ' ' + r.name).toLowerCase().includes(q)).slice(0, 3).map(r => ({ type: 'region', r }));
+  loadIndex();
+  const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? r.sido : r.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '') + ' ' + r.name) : ''; };
+  hits = regions.filter(r => (r.sido + ' ' + r.name).toLowerCase().includes(q)).slice(0, 4).map(r => ({ type: 'region', r }));
   const starts = [], rest = [];
-  for (const row of ix) {
+  for (const row of index) {
     const n = row[0].toLowerCase();
     if (n.startsWith(q)) starts.push(row); else if (n.includes(q) || row[1].toLowerCase().includes(q)) rest.push(row);
   }
   const byArea = (a, b) => b[4] - a[4];
   hits = hits.concat([...starts.sort(byArea), ...rest.sort(byArea)].slice(0, HIT_MAX).map(row => ({ type: 'co', row })));
   act = 0;
-  box.innerHTML = hits.length ? hits.map((h, i) => h.type === 'region'
-    ? `<li data-i="${i}" class="${i ? '' : 'act'}"><b>${esc(h.r.name)}</b><em>지역 이동</em><small>${esc(h.r.sido)} · 후보 ${num(h.r.n)}곳</small></li>`
+  box.innerHTML = (hits.length ? hits.map((h, i) => h.type === 'region'
+    ? `<li data-i="${i}" class="${i ? '' : 'act'}"><b>${esc(h.r.name)}</b><em>지역 이동</em><small>${esc(h.r.sido)} · 회사 ${num(h.r.n)}곳</small></li>`
     : `<li data-i="${i}" class="${i ? '' : 'act'}"><b>${esc(h.row[0] || '이름 없음')}</b><em>${num(h.row[4])}㎡</em><small>${esc(rname(h.row[2]))} ${esc(h.row[1])}</small></li>`).join('')
-    : '<li class="no">찾는 곳이 없습니다</li>';
+    : `<li class="no">${indexDone ? '찾는 곳이 없습니다' : ''}</li>`) + (indexDone ? '' : '<li class="no">전국 목록을 불러오는 중…</li>');
   box.hidden = false;
 }
 async function pick(i) {
@@ -240,9 +242,9 @@ function bind() {
   $('emd').onchange = e => { f.emd = e.target.value; apply(); };
   $('solMode').onchange = e => { f.sol = e.target.value; apply(); };
   const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); apply(); }; };
+  sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
   sl('util', 'vUtil', v => f.util = v / 100, v => v + '%');
   sl('kw', 'vKw', v => f.kw = v / 100, v => (v / 100).toFixed(2) + 'kW');
-  sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
   document.querySelectorAll('#basemap button').forEach(b => b.onclick = () => {
     if (base === b.dataset.base) return;
     base = b.dataset.base; document.querySelectorAll('#basemap button').forEach(x => x.classList.toggle('on', x === b));
@@ -258,7 +260,7 @@ function bind() {
     const sidos = [...new Set(regions.map(r => r.sido))];
     $('region').innerHTML = sidos.map(s => `<optgroup label="${esc(s)}">` + regions.filter(r => r.sido === s).map(r => `<option value="${r.code}">${esc(r.name)}</option>`).join('') + '</optgroup>').join('');
     bind();
-    await loadRegion(location.hash.slice(1));
+    await loadRegion(location.hash.slice(1) || store.get('roofpv_region') || HOME_REGION);
     if (map.loaded()) addLayers();
   } catch (e) {
     $('list').innerHTML = `<li class="msg">자료를 불러오지 못했습니다: ${esc(e.message)}</li>`;
