@@ -61,12 +61,37 @@ def make_batches(items, size, ps):
         s['given'][str(bid)] = {'pass': ps, 'keys': [k for _, k in part]}; ids.append(bid)
     save_state(s); return ids
 
+COLOR_PANEL = 0.02; COLOR_EDGE = 12      # 색 걸러내기 기준: 어두운 푸른색 픽셀 비율과 무늬(경계) 세기가 둘 다 이보다 낮으면 패널 없음으로 본다
+                                          # (2026-11-18 판독 4,480동으로 검증: 패널 390동 중 3동(0.8%)을 놓치고 전체의 41%를 걸러냄)
+def color_filter(items):
+    """사진을 자른 뒤 색으로 먼저 걸러낸다. 걸러진 동은 결과에 pass 0 으로 적고, 남은 동만 돌려준다."""
+    from roof_color import features
+    rings = {}
+    for code in {c for c, _ in items}:
+        for b in json.load(open(os.path.join(T, code + '.json'), encoding='utf-8')): rings[b['k']] = b['ring']
+    keep = []; drop = 0
+    with open(RF, 'a', encoding='utf-8') as out:
+        for c, k in items:
+            if not os.path.exists(imgpath(k)): continue
+            try: ft = features(imgpath(k), rings[k])
+            except Exception: ft = None
+            if ft and ft['panel'] < COLOR_PANEL and ft['edge'] < COLOR_EDGE:
+                out.write(json.dumps({'k': k, 'pass': 0, 'v': 'N', 'cover': 0, 'conf': 'color', 'batch': 0}) + '\n'); drop += 1
+            else: keep.append((c, k))
+    return keep, drop
+
 def nxt(nb, size):
     q = json.load(open(QF)); s = state(); res = load_results()
     out = {k for v in s['given'].values() if v['pass'] == 1 for k in v['keys']}
-    items = [x for x in q if x[1] not in res and x[1] not in out][:nb * size]
-    n, errs = crop_many(items); ok = [x for x in items if os.path.exists(imgpath(x[1]))]
-    ids = make_batches(ok, size, 1); print('자른 사진', n, '실패', len(errs), '| 1차 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(ok)))
+    pool = [x for x in q if x[1] not in res and x[1] not in out]; want = nb * size; ok = []; ncrop = ndrop = 0; pos = 0
+    while len(ok) < want and pos < len(pool):
+        chunk = pool[pos:pos + int((want - len(ok)) * 1.8) + 20]; pos += len(chunk)
+        n, errs = crop_many(chunk); ncrop += n
+        keep, drop = color_filter(chunk); ndrop += drop
+        ok += keep
+    extra = ok[want:]; ok = ok[:want]      # 넘친 것은 다음 차례에 다시 잡힌다
+    ids = make_batches(ok, size, 1)
+    print('자른 사진', ncrop, '| 색으로 걸러냄', ndrop, '| 1차 묶음', ids[0] if ids else '-', '~', ids[-1] if ids else '-', '(%d묶음, %d장)' % (len(ids), len(ok)))
 
 def merge():
     s = state(); done = 0
@@ -101,6 +126,7 @@ def status():
     res = load_results(); q = json.load(open(QF)) if os.path.exists(QF) else []
     c = collections.Counter()
     for k, r in res.items():
+        if 0 in r and 1 not in r: c['색으로 걸러냄'] += 1
         if 1 in r: c['1차 완료'] += 1; c['1차 있음' if r[1]['v'] == 'Y' else '1차 없음'] += 1
         if 3 in r: c['소네트 확인 완료'] += 1; c['소네트도 있음(자가용 추정)' if r[3]['v'] == 'Y' else '소네트는 없음'] += 1
         if 2 in r: c['(예전) 하이쿠 2차 완료'] += 1; c['1·2차 모두 있음' if r[1]['v'] == 'Y' and r[2]['v'] == 'Y' else '1·2차 엇갈림' if r[1]['v'] != r[2]['v'] else '1·2차 모두 없음'] += 1
