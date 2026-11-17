@@ -2,7 +2,7 @@
 const VWORLD_KEY = '12343DE1-7083-3969-A937-153DE6A043BE';   // 배경지도용(도메인 제한 키)
 const LIST_MAX = 300;          // 목록에 한 번에 그리는 개수
 const HIT_MAX = 8;             // 검색 결과 개수
-const HOME_REGION = '43750';   // 처음 열 때 보여줄 지역(진천군)
+const HOME_REGION = 'S:충청북도';   // 처음 열 때 보여줄 지역(충청북도 전체)
 
 // ===== 상태 =====
 let regions = [], region = null;           // 지역 목록, 지금 보는 지역
@@ -17,7 +17,9 @@ const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const gname = g => g.nm || '이름 없음';
-const short = a => { const p = region ? (region.sido + ' ' + (region.name === region.sido ? '' : region.name)).trim() + ' ' : ''; return (a + ' ').startsWith(p) ? a.slice(p.length) : a; };
+// 주소에서 지금 보는 지역 이름을 뗀다(도 전체를 볼 때는 도 이름만, 시군구를 볼 때는 시군구까지)
+const short = a => { const p = region ? (region.all || region.name === region.sido ? region.sido : region.sido + ' ' + region.name) + ' ' : ''; return (a + ' ').startsWith(p) ? a.slice(p.length) : a; };
+const idmap = new Map();   // '시군구코드:번호' -> 묶음 (검색 결과에서 찾아가기용)
 const mobile = () => innerWidth <= 760;
 const getJson = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
@@ -77,7 +79,7 @@ function drawMap() {
   if (selected) ok.add(selected.id);
   const hide = f.sol === 'exclude';   // 기존 태양광 동을 후보에서 뺄지
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g) && !(hide && x.properties.st === 'on')) });
-  const emdOk = new Set(groups.filter(g => !f.emd || g.emd === f.emd).map(g => g.id));
+  const emdOk = new Set(groups.filter(g => !f.emd || g.sub === f.emd).map(g => g.id));
   map.getSource('x').setData({ type: 'FeatureCollection', features: hide ? bldg.features.filter(x => x.properties.st === 'on' && emdOk.has(x.properties.g)) : [] });
   map.getSource('sel').setData(selected ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
   const sat = base === 'sat';
@@ -95,7 +97,7 @@ function calc(g) {
 function apply() {
   groups.forEach(calc);
   view = groups.filter(g => {
-    if (f.emd && g.emd !== f.emd) return false;
+    if (f.emd && g.sub !== f.emd) return false;
     if (f.sol === 'exclude' && g.st === 'on') return false;   // 모든 동에 태양광이 있는 곳만 뺀다
     if (f.sol === 'only' && g.st === 'none') return false;
     return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
@@ -163,31 +165,45 @@ function markList() {
 }
 
 // ===== 지역 =====
-async function loadRegion(code) {
-  const r = regions.find(x => x.code === code) || regions.find(x => x.code === HOME_REGION) || regions[0];
-  if (!cache.has(r.code)) {
-    $('list').innerHTML = '<li class="msg">불러오는 중…</li>';
-    const [a, b] = await Promise.all(['info.json', 'bldg.geojson'].map(n => getJson(`data/${r.code}/${n}`)));
-    cache.set(r.code, { a, b });
+// 지역은 "도 전체"(코드가 'S:도이름') 또는 시군구 하나. 도 전체는 그 도의 시군구 자료를 모두 받아 하나로 합친다.
+async function fetchRegion(code) {
+  if (!cache.has(code)) {
+    const [a, b] = await Promise.all(['info.json', 'bldg.geojson'].map(n => getJson(`data/${code}/${n}`)));
+    cache.set(code, { a, b });
   }
-  const d = cache.get(r.code);
+  return cache.get(code);
+}
+async function loadRegion(code) {
+  code = decodeURIComponent(code || '');
+  const sidoOf = code.startsWith('S:') ? code.slice(2) : null;
+  let parts = sidoOf ? regions.filter(r => r.sido === sidoOf) : regions.filter(r => r.code === code);
+  if (!parts.length) return loadRegion(HOME_REGION);
+  $('list').innerHTML = '<li class="msg">불러오는 중…</li>';
+  const data = await Promise.all(parts.map(r => fetchRegion(r.code)));
   clearSelection();
-  region = r; meta = d.a.meta; groups = d.a.groups; bldg = d.b;
-  byGroup.clear();
-  bldg.features.forEach(x => { const g = x.properties.g; if (!byGroup.has(g)) byGroup.set(g, []); byGroup.get(g).push(x); });
-  $('region').value = r.code;
+  const all = !!sidoOf;
+  region = all ? { code: 'S:' + sidoOf, sido: sidoOf, name: sidoOf, all: true, bbox: parts.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) } : parts[0];
+  meta = data[0].a.meta; groups = []; byGroup.clear(); idmap.clear();
+  const feats = [];
+  data.forEach((d, i) => {
+    const off = groups.length, r = parts[i];
+    d.a.groups.forEach(g => { const n = Object.assign({}, g, { id: off + g.id, sub: all ? r.name : g.emd }); groups.push(n); idmap.set(r.code + ':' + g.id, n); });
+    d.b.features.forEach(x => { const ft = { type: 'Feature', geometry: x.geometry, properties: { g: off + x.properties.g, st: x.properties.st } }; feats.push(ft); if (!byGroup.has(ft.properties.g)) byGroup.set(ft.properties.g, []); byGroup.get(ft.properties.g).push(ft); });
+  });
+  bldg = { type: 'FeatureCollection', features: feats };
+  $('region').value = region.code;
   f.emd = '';
-  $('emd').innerHTML = '<option value="">읍면동 전체</option>' + [...new Set(groups.map(g => g.emd).filter(Boolean))].sort().map(e => `<option>${esc(e)}</option>`).join('');
-  history.replaceState(null, '', '#' + r.code); store.set('roofpv_region', r.code);
+  $('emd').innerHTML = `<option value="">${all ? '시군구' : '읍면동'} 전체</option>` + [...new Set(groups.map(g => g.sub).filter(Boolean))].sort().map(e => `<option>${esc(e)}</option>`).join('');
+  history.replaceState(null, '', '#' + encodeURIComponent(region.code)); store.set('roofpv_region', region.code);
   apply();
-  map.fitBounds([[r.bbox[0], r.bbox[1]], [r.bbox[2], r.bbox[3]]], { padding: 40, duration: 0 });
+  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: 40, duration: 0 });
 }
 
 // ===== 통합 검색 (회사·주소·지역) =====
 // 색인은 시도별 파일이다. 지금 보는 시도부터 받고 나머지는 이어서 받는다. 받는 대로 검색 결과에 반영된다.
 function loadIndex() {
   if (indexBusy) return indexBusy;
-  const cur = region ? region.code.slice(0, 2) : '', sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))].sort((a, b) => (b === cur) - (a === cur));
+  const cur = region ? (regions.find(r => r.sido === region.sido) || { code: '' }).code.slice(0, 2) : '', sidos = [...new Set(regions.map(r => r.code.slice(0, 2)))].sort((a, b) => (b === cur) - (a === cur));
   indexBusy = (async () => {
     for (const s of sidos) { index = index.concat(await getJson(`data/search/${s}.json`).catch(() => [])); if (!$('hits').hidden || $('q').value.trim().length >= 2) search(); }
     indexDone = true; if ($('q').value.trim().length >= 2) search();
@@ -200,7 +216,8 @@ function search() {
   if (q.length < 2) { box.hidden = true; return; }
   loadIndex();
   const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? r.sido : r.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '') + ' ' + r.name) : ''; };
-  hits = regions.filter(r => (r.sido + ' ' + r.name).toLowerCase().includes(q)).slice(0, 4).map(r => ({ type: 'region', r }));
+  hits = [...new Set(regions.map(r => r.sido))].filter(x => x.toLowerCase().includes(q)).slice(0, 2).map(x => ({ type: 'region', r: { code: 'S:' + x, name: x + ' 전체', sido: '도 단위로 보기', n: regions.filter(r => r.sido === x).reduce((a, r) => a + r.n, 0) } }))
+    .concat(regions.filter(r => (r.sido + ' ' + r.name).toLowerCase().includes(q)).slice(0, 3).map(r => ({ type: 'region', r })));
   const starts = [], rest = [];
   for (const row of index) {
     const n = row[0].toLowerCase();
@@ -219,8 +236,9 @@ async function pick(i) {
   const h = hits[i]; if (!h) return;
   $('hits').hidden = true; $('q').value = ''; $('q').blur();
   if (h.type === 'region') return loadRegion(h.r.code);
-  if (!region || region.code !== h.row[2]) await loadRegion(h.row[2]);
-  select(groups[h.row[3]]);
+  const key = h.row[2] + ':' + h.row[3];
+  if (!idmap.has(key)) await loadRegion(h.row[2]);      // 지금 보는 지역에 없으면 그 시군구로 이동
+  if (idmap.has(key)) select(idmap.get(key));
 }
 
 // ===== 조작 =====
@@ -258,7 +276,7 @@ function bind() {
   try {
     regions = (await getJson('data/regions.json')).regions;
     const sidos = [...new Set(regions.map(r => r.sido))];
-    $('region').innerHTML = sidos.map(s => `<optgroup label="${esc(s)}">` + regions.filter(r => r.sido === s).map(r => `<option value="${r.code}">${esc(r.name)}</option>`).join('') + '</optgroup>').join('');
+    $('region').innerHTML = sidos.map(s => `<optgroup label="${esc(s)}"><option value="S:${esc(s)}">${esc(s)} 전체</option>` + regions.filter(r => r.sido === s && r.name !== s).map(r => `<option value="${r.code}">${esc(r.name)}</option>`).join('') + '</optgroup>').join('');
     bind();
     await loadRegion(location.hash.slice(1) || store.get('roofpv_region') || HOME_REGION);
     if (map.loaded()) addLayers();

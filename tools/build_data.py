@@ -232,6 +232,7 @@ def build(arg):
     old, path, code = arg
     J = P['J']; sido, sgname = J['sgg'].get(code, ('', ''))
     if not sido: return {'code': code, 'skip': '시군구 이름 없음'}
+    sido = {'29': '광주광역시', '46': '전라남도'}.get(old[:2], sido)      # 화면 표시용 시도 이름
     cand = [json.loads(l) for l in open(path, encoding='utf-8')]
     for b in cand: b['c'] = centroid(b['rings'][0])
     # 1) 묶기: 지도 표기 이름이 같고 가까운 건물끼리
@@ -265,11 +266,13 @@ def build(arg):
         for i in m: cand[i]['gid'] = gid
     gb = [b for b in cand if 'gid' in b]
     if not gb: return {'code': code, 'skip': '공장·창고 묶음 없음'}
-    by_road = collections.defaultdict(list); by_bjd = collections.defaultdict(list)
+    by_road = collections.defaultdict(list); by_bjd = collections.defaultdict(list); by_core = collections.defaultdict(list)
     for b in gb:
         a = b['attrs']
         if a['RDNM']: b['rk'] = (code + a['RDNM'], int(a['BONU'] or 0), int(a['BUNU'] or 0)); by_road[b['rk']].append(b)
         by_bjd[a['BJCD']].append(b)
+        cn = core(a['ANNO'] or a['NAME'])
+        if len(cn) >= 3: by_core[cn].append(b)
     # 2) 기존 태양광 (지자체 등록분): 좌표가 건물 안에 있으면 그 동, 좌표가 없으면 주소가 같은 가장 큰 동
     gsol = collections.defaultdict(list); pts = P['pts']; grid = P['grid']; seen = set()
     for b in gb:
@@ -299,6 +302,9 @@ def build(arg):
         elif r['jk']:
             nm = [b for b in by_bjd.get(r['jk'][0], ()) if same_name(r['nm'], b['attrs']['ANNO'] or b['attrs']['NAME'])]
             if nm: b = max(nm, key=lambda b: b['area_m2']); how = 'name'
+        if not how:
+            nm = by_core.get(core(r['nm']), ())
+            if nm and len({b['gid'] for b in nm}) == 1: b = max(nm, key=lambda b: b['area_m2']); how = 'name'; rs['이름만 일치(시군구 안 유일)'] += 1
         if not how: rs['맞는 건물 없음'] += 1; continue
         rs['이름 일치' if how == 'name' else '주소 일치'] += 1
         greg[b['gid']].append(dict(r, how=how))
@@ -322,8 +328,9 @@ def build(arg):
              'n': len(rem), 'a': round(sum(b['area_m2'] for b in rem)), 'nt': len(bs), 'at': round(sum(b['area_m2'] for b in bs)),
              'st': 'on' if not rem else 'part' if inst else 'none', 'sn': len(so), 'skw': round(sum(s[0] for s in so), 1)}
         if rr:
-            g['tel'] = rr[0]['tel']; g['own'] = rr[0]['own']
-            if mapnm and not same_name(mapnm, rr[0]['nm']): g['telnm'] = rr[0]['nm']     # 번호 주인이 지도 표기와 다를 때만
+            top = next((r for r in rr if r['tel']), rr[0])      # 번호가 있는 등록 건을 우선
+            g['tel'] = top['tel']; g['own'] = top['own']
+            if mapnm and not same_name(mapnm, top['nm']): g['telnm'] = top['nm']     # 번호 주인이 지도 표기와 다를 때만
         G.append(g)
     feats = [{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]},
               'properties': {'g': b['gid'], 'st': 'on' if (b.get('sol') or b.get('ph')) else 'none'}} for b in gb]
