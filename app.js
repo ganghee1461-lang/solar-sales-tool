@@ -11,7 +11,7 @@ const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
 const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
 let index = [], indexDone = false, indexBusy = null;   // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
-const f = { emd: '', sol: 'exclude', minC: 100, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
+const f = { emd: '', sol: 'exclude', minC: 100, util: 0.5, kw: 0.30, q: '' };   // q = 검색어(목록·지도를 거른다)   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
 
 const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -21,6 +21,10 @@ const gname = g => g.nm || '이름 없음';
 const short = a => { const p = region ? (region.all || region.name === region.sido ? region.sido : region.sido + ' ' + region.name) + ' ' : ''; return (a + ' ').startsWith(p) ? a.slice(p.length) : a; };
 const idmap = new Map();   // '시군구코드:번호' -> 묶음 (검색 결과에서 찾아가기용)
 const mobile = () => innerWidth <= 760;
+const lc = s => String(s || '').toLowerCase();
+const hitQ = g => !f.q || lc(g.nm).includes(f.q) || lc(g.ad).includes(f.q);   // 검색어가 회사명·주소에 있는지
+// 지도를 맞출 때 여백: 폰에서 아래 패널이 올라와 있으면 그 높이만큼 비운다
+const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 60, left: 24, right: 24, bottom: $('side').offsetHeight + 16 } : 40;
 const getJson = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
@@ -94,10 +98,25 @@ function calc(g) {
   g._cf = meta.cf ? meta.cf.pct / 100 : null;                // 이용률(전력거래소 시도 실적)
   g._gen = g._cf ? g._cap * g._cf * 8760 / 1000 : null;      // 연간 발전량 MWh
 }
+// 전국 전체일 때 목록에 띄우는 광역별 요약(회사 수는 조건 적용 전)
+const sidoRows = () => [...new Set(regions.map(r => r.sido))].map(s => { const p = regions.filter(r => r.sido === s); return { s, n: p.reduce((a, r) => a + r.n, 0), k: p.length }; }).sort((a, b) => b.n - a.n);
 function apply() {
+  $('basisNow').textContent = `${num(f.minC)}kW 이상 · ${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡`;
+  if (region && region.nation) {
+    view = []; const rows = sidoRows();
+    $('sN').textContent = num(rows.reduce((a, r) => a + r.n, 0)); $('sCap').textContent = '-'; $('sGen').textContent = '-';
+    $('list').innerHTML = '<li class="msg">광역을 고르면 회사 목록이 나옵니다 · 회사 수는 조건 적용 전</li>' + rows.map((r, i) => `
+      <li data-sido="${esc('S:' + r.s)}" class="sido">
+        <span class="rk">${i + 1}</span><span class="nm">${esc(r.s)}</span><span class="cap">${num(r.n)}<small>곳</small></span>
+        <span class="ad">시군구 ${r.k}곳</span><span class="ar"></span>
+        <span class="bar"><i style="width:${Math.max(2, r.n / rows[0].n * 100).toFixed(1)}%"></i></span>
+      </li>`).join('');
+    drawMap(); return;
+  }
   groups.forEach(calc);
   view = groups.filter(g => {
     if (f.emd && g.sub !== f.emd) return false;
+    if (!hitQ(g)) return false;
     if (f.sol === 'exclude' && g.st === 'on') return false;   // 모든 동에 태양광이 있는 곳만 뺀다
     if (f.sol === 'only' && g.st === 'none') return false;
     return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
@@ -105,12 +124,14 @@ function apply() {
   $('sN').textContent = num(view.length);
   $('sCap').textContent = num(view.reduce((s, g) => s + g._cap, 0) / 1000, 1);
   $('sGen').textContent = num(view.reduce((s, g) => s + (g._gen || 0), 0) / 1000, 1);
-  $('basisNow').textContent = `${num(f.minC)}kW 이상 · ${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡`;
   drawList(); drawMap();
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
 function drawList() {
   const max = view.length ? view[0]._cap : 1;
+  // 검색 중이면 조건(용량 기준 등) 때문에 빠진 회사도 아래에 흐리게 보여준다
+  const shown = new Set(view.map(g => g.id));
+  const outs = f.q ? groups.filter(g => !shown.has(g.id) && (!f.emd || g.sub === f.emd) && hitQ(g)).sort((a, b) => b.a - a.a).slice(0, 30) : [];
   $('list').innerHTML = view.slice(0, LIST_MAX).map((g, i) => `
     <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : ''}${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="rk">${i + 1}</span>
@@ -121,9 +142,20 @@ function drawList() {
       <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
     </li>`).join('')
     + (view.length > LIST_MAX ? `<li class="msg">용량 큰 순으로 ${LIST_MAX}곳까지 표시 (전체 ${num(view.length)}곳)</li>` : '')
-    + (view.length ? '' : '<li class="msg">조건에 맞는 곳이 없습니다</li>');
+    + (view.length ? '' : `<li class="msg">${f.q ? `${esc(scopeName())} 안에 '${esc(f.q)}' 검색 결과가 없습니다<br><small>범위를 넓히려면 위 칸에서 전체를 고르세요</small>` : '조건에 맞는 곳이 없습니다'}</li>`)
+    + (outs.length ? `<li class="msg sub">아래는 지금 조건 밖이라 목록에서 빠진 곳</li>` + outs.map(g => `
+    <li data-id="${g.id}" class="out${selected && selected.id === g.id ? ' sel' : ''}">
+      <span class="rk">-</span>
+      <span class="nm">${esc(gname(g))}<span class="tag">${g.st === 'on' ? '기존 태양광' : '조건 밖'}</span></span>
+      <span class="cap">${num(g._cap)}<small>kW</small></span>
+      <span class="ad">${esc(short(g.ad))}</span>
+      <span class="ar">${num(g.a)}㎡ · ${g.n}동</span>
+    </li>`).join('') : '');
 }
-$('list').addEventListener('click', e => { const li = e.target.closest('li[data-id]'); if (li) select(groups[+li.dataset.id]); });
+$('list').addEventListener('click', e => {
+  const s = e.target.closest('li[data-sido]'); if (s) return loadRegion(s.dataset.sido);
+  const li = e.target.closest('li[data-id]'); if (li) select(groups[+li.dataset.id]);
+});
 
 // ===== 선택과 팝업 =====
 function card(g) {
@@ -173,11 +205,50 @@ async function fetchRegion(code) {
   }
   return cache.get(code);
 }
+// 지금 고른 범위의 이름(검색창 안내에 쓴다)
+function scopeName() {
+  if (!region || region.nation) return '전국';
+  const s = region.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '');
+  return (region.all || region.name === region.sido ? region.sido : s + ' ' + region.name) + (f.emd ? ' ' + f.emd : '');
+}
+// 광역 · 시군구 · 읍면동 세 칸을 지금 범위에 맞게 채운다. 각 칸 맨 위는 '전체'
+function fillScope() {
+  const sido = region.nation ? '' : region.sido, sggs = sido ? regions.filter(r => r.sido === sido) : [], single = sggs.length === 1;
+  $('sido').innerHTML = '<option value="ALL">전국 전체</option>' + [...new Set(regions.map(r => r.sido))].map(s => `<option value="${esc('S:' + s)}">${esc(s)}</option>`).join('');
+  $('sido').value = sido ? 'S:' + sido : 'ALL';
+  $('sgg').innerHTML = !sido ? '<option value="">시군구 전체</option>'
+    : single ? `<option value="${sggs[0].code}">시군구 전체</option>`
+    : `<option value="${esc('S:' + sido)}">시군구 전체</option>` + sggs.map(r => `<option value="${r.code}">${esc(r.name)}</option>`).join('');
+  $('sgg').value = sido ? region.code : ''; $('sgg').disabled = !sido || single;
+  const emds = region.nation || region.all ? [] : [...new Set(groups.map(g => g.sub).filter(Boolean))].sort();
+  $('emd').innerHTML = '<option value="">읍면동 전체</option>' + emds.map(e => `<option>${esc(e)}</option>`).join('');
+  $('emd').value = f.emd; $('emd').disabled = !emds.length;
+  $('q').placeholder = scopeName() + ' 안에서 회사·주소 검색';
+}
+// 지도를 회사 위치들에 맞춘다(읍면동을 골랐을 때)
+function fitGroups(list) {
+  if (!list.length) return;
+  const b = list.reduce((r, g) => [Math.min(r[0], g.c[0]), Math.min(r[1], g.c[1]), Math.max(r[2], g.c[0]), Math.max(r[3], g.c[1])], [999, 999, -999, -999]);
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: pad(), maxZoom: 15, duration: 400 });
+}
+function resetSearch() { $('q').value = ''; $('hits').hidden = true; f.q = ''; }
+function loadNation() {
+  clearSelection(); resetSearch();
+  region = { code: 'ALL', nation: true, name: '전국', sido: '', bbox: regions.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) };
+  meta = {}; groups = []; byGroup.clear(); idmap.clear(); bldg = { type: 'FeatureCollection', features: [] }; f.emd = '';
+  fillScope();
+  history.replaceState(null, '', '#ALL'); store.set('roofpv_region', 'ALL');
+  apply();
+  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 0 });
+}
 async function loadRegion(code) {
   code = decodeURIComponent(code || '');
-  const sidoOf = code.startsWith('S:') ? code.slice(2) : null;
+  if (code === 'ALL') return loadNation();
+  let sidoOf = code.startsWith('S:') ? code.slice(2) : null;
   let parts = sidoOf ? regions.filter(r => r.sido === sidoOf) : regions.filter(r => r.code === code);
   if (!parts.length) return loadRegion(HOME_REGION);
+  if (sidoOf && parts.length === 1) sidoOf = null;   // 세종처럼 시군구가 하나뿐인 곳은 시군구로 연다
+  resetSearch();
   $('list').innerHTML = '<li class="msg">불러오는 중…</li>';
   const data = await Promise.all(parts.map(r => fetchRegion(r.code)));
   clearSelection();
@@ -191,12 +262,11 @@ async function loadRegion(code) {
     d.b.features.forEach(x => { const ft = { type: 'Feature', geometry: x.geometry, properties: { g: off + x.properties.g, st: x.properties.st } }; feats.push(ft); if (!byGroup.has(ft.properties.g)) byGroup.set(ft.properties.g, []); byGroup.get(ft.properties.g).push(ft); });
   });
   bldg = { type: 'FeatureCollection', features: feats };
-  $('region').value = region.code;
   f.emd = '';
-  $('emd').innerHTML = `<option value="">${all ? '시군구' : '읍면동'} 전체</option>` + [...new Set(groups.map(g => g.sub).filter(Boolean))].sort().map(e => `<option>${esc(e)}</option>`).join('');
+  fillScope();
   history.replaceState(null, '', '#' + encodeURIComponent(region.code)); store.set('roofpv_region', region.code);
   apply();
-  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: 40, duration: 0 });
+  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 0 });
 }
 
 // ===== 통합 검색 (회사·주소·지역) =====
@@ -210,32 +280,49 @@ function loadIndex() {
   })();
   return indexBusy;
 }
+// 검색은 위 세 칸으로 고른 범위 안에서만 한다.
+//  광역·시군구를 골랐으면 → 검색어로 아래 목록과 지도를 바로 거른다. 드롭다운에는 '지역 이동' 제안만 뜬다.
+//  전국 전체 → 목록이 광역 요약뿐이라 전국 색인(시도별 파일)에서 회사를 찾아 드롭다운으로 보여준다.
 let hits = [], act = 0;
 function search() {
   const q = $('q').value.trim().toLowerCase(), box = $('hits');
-  if (q.length < 2) { box.hidden = true; return; }
-  loadIndex();
-  const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? r.sido : r.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '') + ' ' + r.name) : ''; };
-  hits = [...new Set(regions.map(r => r.sido))].filter(x => x.toLowerCase().includes(q)).slice(0, 2).map(x => ({ type: 'region', r: { code: 'S:' + x, name: x + ' 전체', sido: '도 단위로 보기', n: regions.filter(r => r.sido === x).reduce((a, r) => a + r.n, 0) } }))
-    .concat(regions.filter(r => (r.sido + ' ' + r.name).toLowerCase().includes(q)).slice(0, 3).map(r => ({ type: 'region', r })));
-  const starts = [], rest = [];
-  for (const row of index) {
-    const n = row[0].toLowerCase();
-    if (n.startsWith(q)) starts.push(row); else if (n.includes(q) || row[1].toLowerCase().includes(q)) rest.push(row);
+  const byRank = (s, r, k) => [...s.sort((a, b) => k(b) - k(a)), ...r.sort((a, b) => k(b) - k(a))];
+  const nation = region.nation;
+  if (!nation && f.q !== q) { f.q = q; apply(); }
+  if (q.length < 2) { box.hidden = true; hits = []; return; }
+  if (nation) {
+    loadIndex();
+    const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? r.sido : r.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '') + ' ' + r.name) : ''; };
+    hits = [...new Set(regions.map(r => r.sido))].filter(x => lc(x).includes(q)).slice(0, 2).map(x => ({ type: 'region', r: { code: 'S:' + x, name: x, sido: '광역 이동', n: regions.filter(r => r.sido === x).reduce((a, r) => a + r.n, 0) } }))
+      .concat(regions.filter(r => r.name !== r.sido && lc(r.sido + ' ' + r.name).includes(q)).slice(0, 3).map(r => ({ type: 'region', r })));
+    const starts = [], rest = [];
+    for (const row of index) { const n = lc(row[0]); if (n.startsWith(q)) starts.push(row); else if (n.includes(q) || lc(row[1]).includes(q)) rest.push(row); }
+    hits = hits.concat(byRank(starts, rest, r => r[4]).slice(0, HIT_MAX).map(row => ({ type: 'co', row, sub: rname(row[2]) + ' ' + row[1] })));
+  } else {
+    // 범위 안의 하위 지역: 광역 전체면 시군구, 시군구면 읍면동
+    hits = region.all
+      ? regions.filter(r => r.sido === region.sido && lc(r.name).includes(q)).slice(0, 3).map(r => ({ type: 'region', r }))
+      : [...new Set(groups.map(g => g.sub))].filter(e => e && e !== f.emd && lc(e).includes(q)).slice(0, 3).map(e => ({ type: 'emd', e, n: groups.filter(g => g.sub === e).length }));
+    if (!hits.length) { box.hidden = true; return; }   // 회사는 아래 목록에서 바로 보이므로 드롭다운을 띄우지 않는다
   }
-  const byArea = (a, b) => b[4] - a[4];
-  hits = hits.concat([...starts.sort(byArea), ...rest.sort(byArea)].slice(0, HIT_MAX).map(row => ({ type: 'co', row })));
   act = 0;
-  box.innerHTML = (hits.length ? hits.map((h, i) => h.type === 'region'
-    ? `<li data-i="${i}" class="${i ? '' : 'act'}"><b>${esc(h.r.name)}</b><em>지역 이동</em><small>${esc(h.r.sido)} · 회사 ${num(h.r.n)}곳</small></li>`
-    : `<li data-i="${i}" class="${i ? '' : 'act'}"><b>${esc(h.row[0] || '이름 없음')}</b><em>${num(h.row[4])}㎡</em><small>${esc(rname(h.row[2]))} ${esc(h.row[1])}</small></li>`).join('')
-    : `<li class="no">${indexDone ? '찾는 곳이 없습니다' : ''}</li>`) + (indexDone ? '' : '<li class="no">전국 목록을 불러오는 중…</li>');
+  const row = (h, i) => {
+    const c = i ? '' : 'act';
+    if (h.type === 'region') return `<li data-i="${i}" class="${c}"><b>${esc(h.r.name)}</b><em>지역 이동</em><small>${esc(h.r.sido)} · 회사 ${num(h.r.n)}곳</small></li>`;
+    if (h.type === 'emd') return `<li data-i="${i}" class="${c}"><b>${esc(h.e)}</b><em>읍면동 보기</em><small>${esc(scopeName())} · 회사 ${num(h.n)}곳</small></li>`;
+    return `<li data-i="${i}" class="${c}"><b>${esc(h.row[0] || '이름 없음')}</b><em>${num(h.row[4])}㎡</em><small>${esc(h.sub)}</small></li>`;
+  };
+  const wait = nation && !indexDone;
+  box.innerHTML = (hits.length ? hits.map(row).join('') : (wait ? '' : '<li class="no">전국에서 찾는 곳이 없습니다</li>'))
+    + (wait ? '<li class="no">전국 목록을 불러오는 중…</li>' : '');
   box.hidden = false;
 }
 async function pick(i) {
   const h = hits[i]; if (!h) return;
-  $('hits').hidden = true; $('q').value = ''; $('q').blur();
-  if (h.type === 'region') return loadRegion(h.r.code);
+  $('q').blur();
+  if (h.type === 'region') return loadRegion(h.r.code);   // 범위가 바뀌면 검색어는 비운다
+  if (h.type === 'emd') { resetSearch(); f.emd = h.e; fillScope(); apply(); return fitGroups(groups.filter(g => g.sub === h.e)); }
+  $('hits').hidden = true;
   const key = h.row[2] + ':' + h.row[3];
   if (!idmap.has(key)) await loadRegion(h.row[2]);      // 지금 보는 지역에 없으면 그 시군구로 이동
   if (idmap.has(key)) select(idmap.get(key));
@@ -244,10 +331,13 @@ async function pick(i) {
 // ===== 조작 =====
 function bind() {
   $('q').addEventListener('input', search);
-  $('q').addEventListener('focus', () => { loadIndex(); search(); });
+  $('q').addEventListener('focus', () => { if (region && region.nation) loadIndex(); search(); });
   $('q').addEventListener('keydown', e => {
     const lis = [...document.querySelectorAll('#hits li[data-i]')];
-    if (e.key === 'Enter') { e.preventDefault(); pick(act); }
+    if (e.key === 'Enter') {   // 제안이 떠 있으면 그걸, 아니면 목록 첫 회사를 고른다
+      e.preventDefault();
+      if (!$('hits').hidden && hits.length) pick(act); else if (view.length) { $('q').blur(); select(view[0]); }
+    }
     else if (e.key === 'Escape') { $('hits').hidden = true; }
     else if ((e.key === 'ArrowDown' || e.key === 'ArrowUp') && lis.length) {
       e.preventDefault(); act = (act + (e.key === 'ArrowDown' ? 1 : -1) + lis.length) % lis.length;
@@ -256,8 +346,12 @@ function bind() {
   });
   $('hits').addEventListener('mousedown', e => { const li = e.target.closest('li[data-i]'); if (li) { e.preventDefault(); pick(+li.dataset.i); } });
   document.addEventListener('click', e => { if (!e.target.closest('#find')) $('hits').hidden = true; });
-  $('region').onchange = e => loadRegion(e.target.value);
-  $('emd').onchange = e => { f.emd = e.target.value; apply(); };
+  $('sido').onchange = e => loadRegion(e.target.value);
+  $('sgg').onchange = e => loadRegion(e.target.value);
+  $('emd').onchange = e => {
+    f.emd = e.target.value; resetSearch(); fillScope(); apply();
+    if (f.emd) fitGroups(groups.filter(g => g.sub === f.emd)); else map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 400 });
+  };
   $('solMode').onchange = e => { f.sol = e.target.value; apply(); };
   const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); apply(); }; };
   sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
@@ -275,8 +369,6 @@ function bind() {
 (async function start() {
   try {
     regions = (await getJson('data/regions.json')).regions;
-    const sidos = [...new Set(regions.map(r => r.sido))];
-    $('region').innerHTML = sidos.map(s => `<optgroup label="${esc(s)}"><option value="S:${esc(s)}">${esc(s)} 전체</option>` + regions.filter(r => r.sido === s && r.name !== s).map(r => `<option value="${r.code}">${esc(r.name)}</option>`).join('') + '</optgroup>').join('');
     bind();
     await loadRegion(location.hash.slice(1) || store.get('roofpv_region') || HOME_REGION);
     if (map.loaded()) addLayers();

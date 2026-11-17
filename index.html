@@ -15,7 +15,6 @@
     <header>
       <div class="ttl">
         <h1>지붕 태양광 후보</h1>
-        <select id="region" aria-label="지역"></select>
       </div>
       <div id="stats">
         <div><b id="sN">-</b><span>후보 회사</span></div>
@@ -25,12 +24,16 @@
     </header>
 
     <div id="filters">
+      <div id="scope">
+        <select id="sido" aria-label="광역"></select>
+        <select id="sgg" aria-label="시군구"></select>
+        <select id="emd" aria-label="읍면동"></select>
+      </div>
       <div id="find">
-        <input type="search" id="q" placeholder="회사명·주소·지역 검색" aria-label="검색" autocomplete="off">
+        <input type="search" id="q" placeholder="회사명·주소 검색" aria-label="검색" autocomplete="off">
         <ul id="hits" hidden></ul>
       </div>
-      <div class="row2">
-        <select id="emd" aria-label="읍면동"></select>
+      <div class="row1">
         <select id="solMode" aria-label="기존 태양광">
           <option value="exclude">기존 태양광 동 제외</option>
           <option value="all">전체 지붕 보기</option>
