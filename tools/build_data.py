@@ -22,6 +22,7 @@ JUSO_ZIP = glob.glob(os.path.join(GIS, '도로명주소/원본/*도로명주소 
 JCACHE = os.path.join(GIS, '도로명주소/가공'); os.makedirs(JCACHE, exist_ok=True)
 
 USE_OK = {'BDS015', 'BDS016'}       # 공장, 창고시설
+MIN_GROUP_AREA = 2000.0             # 회사 전체 지붕이 이보다 작으면 싣지 않는다(설치 비율 50%, ㎡당 0.30kW 기준 300kW)
 LINK_M = 500.0                      # 같은 이름 건물을 한 사업장으로 묶는 거리
 CF_YEARS = 3                        # 이용률 평균에 쓰는 최근 연도 수
 USE_PHOTO = False                   # 사진 판독(자가용 추정) 결과는 전국 기준이 같아질 때까지 웹에 쓰지 않는다 (2026-11-18 결정)
@@ -232,7 +233,6 @@ def build(arg):
     old, path, code = arg
     J = P['J']; sido, sgname = J['sgg'].get(code, ('', ''))
     if not sido: return {'code': code, 'skip': '시군구 이름 없음'}
-    sido = {'29': '광주광역시', '46': '전라남도'}.get(old[:2], sido)      # 화면 표시용 시도 이름
     cand = [json.loads(l) for l in open(path, encoding='utf-8')]
     for b in cand: b['c'] = centroid(b['rings'][0])
     # 1) 묶기: 지도 표기 이름이 같고 가까운 건물끼리
@@ -260,7 +260,7 @@ def build(arg):
         u = collections.Counter()
         for i in m: u[cand[i]['attrs']['SERV']] += cand[i]['area_m2']
         return max(u, key=u.get)
-    groups = [g for g in groups if main_use(g[1]) in USE_OK]          # 주용도가 공장·창고인 묶음만
+    groups = [g for g in groups if main_use(g[1]) in USE_OK and sum(cand[i]['area_m2'] for i in g[1]) >= MIN_GROUP_AREA]   # 주용도가 공장·창고이고 지붕이 넓은 묶음만
     groups.sort(key=lambda g: -sum(cand[i]['area_m2'] for i in g[1]))
     for gid, (k, m) in enumerate(groups):
         for i in m: cand[i]['gid'] = gid
