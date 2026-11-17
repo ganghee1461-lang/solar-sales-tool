@@ -11,7 +11,7 @@ const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
 const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
 let index = [], indexDone = false, indexBusy = null;   // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
-const f = { emd: '', sol: 'exclude', minC: 300, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
+const f = { emd: '', sol: 'exclude', minC: 100, util: 0.5, kw: 0.30 };   // kw = ㎡당 설비용량(0.30 = 3.3㎡당 1kW)
 
 const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });

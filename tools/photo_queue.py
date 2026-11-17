@@ -24,15 +24,19 @@ def state(): return json.load(open(SF)) if os.path.exists(SF) else {'next_batch'
 def save_state(s): json.dump(s, open(SF, 'w'))
 def imgpath(k): return os.path.join(IMG, k.replace(':', '_') + '.jpg')
 
+ORDER = ['43750', '43', '44', '36', '30', '41']      # 판독 순서: 진천(정확도 확인용) -> 충북 -> 충남 -> 세종 -> 대전 -> 경기 -> 나머지
+
 def plan(sido, minkw):
     res = load_results(); q = []
-    for f in sorted(glob.glob(os.path.join(T, sido + '*.json'))):
-        code = os.path.basename(f)[:-5]; G = json.load(open(os.path.join(ROOT, 'data', code, 'info.json'), encoding='utf-8'))['groups']
+    for f in sorted(glob.glob(os.path.join(T, ('' if sido == 'all' else sido) + '*.json'))):
+        code = os.path.basename(f)[:-5]; ip = os.path.join(ROOT, 'data', code, 'info.json')
+        if not os.path.exists(ip): continue
+        G = json.load(open(ip, encoding='utf-8'))['groups']; rank = next((i for i, o in enumerate(ORDER) if code.startswith(o)), len(ORDER))
         for b in json.load(open(f, encoding='utf-8')):
             g = G[b['g']]; cap = g['a'] * 0.5 * 0.3
             if b['sol'] or g['st'] == 'on' or cap < minkw or b['k'] in res: continue
-            q.append((-cap, code, b['k']))
-    q.sort(); json.dump([[c, k] for _, c, k in q], open(QF, 'w')); print('대기열', len(q), '동')
+            q.append((rank, code if rank == len(ORDER) else '', -cap, code, b['k']))
+    q.sort(); json.dump([[x[3], x[4]] for x in q], open(QF, 'w')); print('대기열', len(q), '동')
 
 def crop_many(items):
     from crop_roofs import crop
@@ -92,10 +96,21 @@ def status():
         if 2 in r: c['2차 완료'] += 1; c['1·2차 모두 있음' if r[1]['v'] == 'Y' and r[2]['v'] == 'Y' else '1·2차 엇갈림' if r[1]['v'] != r[2]['v'] else '1·2차 모두 없음'] += 1
     print('대기열', len(q), '| 남은 1차', sum(1 for x in q if x[1] not in res), '|', dict(c))
 
+def score():
+    """진천은 상위 모델이 직접 확인한 정답이 있다. 하이쿠 판정(1차, 그리고 1·2차 모두 '있음')이 얼마나 맞는지 잰다."""
+    truth = set(json.load(open(os.path.join(B, '판독/패널있음_43750_고유번호.json'), encoding='utf-8'))['패널있음'])
+    keys = {b['k'] for b in json.load(open(os.path.join(T, '43750.json'), encoding='utf-8'))}; res = load_results()
+    for name, pred in (('1차만', lambda r: r[1]['v'] == 'Y'), ('1·2차 모두 있음', lambda r: r[1]['v'] == 'Y' and 2 in r and r[2]['v'] == 'Y')):
+        ks = [k for k in keys if k in res and 1 in res[k] and (name == '1차만' or res[k][1]['v'] == 'N' and res[k][1]['conf'] != 'low' or 2 in res[k])]
+        tp = sum(1 for k in ks if pred(res[k]) and k in truth); fp = sum(1 for k in ks if pred(res[k]) and k not in truth); fn = sum(1 for k in ks if not pred(res[k]) and k in truth)
+        print('%s: 판독 %d동 | 있음 판정 %d (맞음 %d, 오판 %d) | 놓침 %d | 정밀도 %s 재현율 %s' % (name, len(ks), tp + fp, tp, fp, fn,
+              '%.0f%%' % (100 * tp / (tp + fp)) if tp + fp else '-', '%.0f%%' % (100 * tp / (tp + fn)) if tp + fn else '-'))
+
 if __name__ == '__main__':
     a = sys.argv[1:]
     if a[0] == 'plan': plan(a[1], float(a[2]))
     elif a[0] == 'next': nxt(int(a[1]), int(a[2]))
     elif a[0] == 'merge': merge()
     elif a[0] == 'recheck': recheck(int(a[1]))
+    elif a[0] == 'score': score()
     else: status()

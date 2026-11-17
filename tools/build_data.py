@@ -22,7 +22,7 @@ JUSO_ZIP = glob.glob(os.path.join(GIS, '도로명주소/원본/*도로명주소 
 JCACHE = os.path.join(GIS, '도로명주소/가공'); os.makedirs(JCACHE, exist_ok=True)
 
 USE_OK = {'BDS015', 'BDS016'}       # 공장, 창고시설
-MIN_GROUP_AREA = 2000.0             # 회사 전체 지붕이 이보다 작으면 싣지 않는다(설치 비율 50%, ㎡당 0.30kW 기준 300kW)
+MIN_GROUP_AREA = 667.0              # 회사 전체 지붕이 이보다 작으면 싣지 않는다(설치 비율 50%, ㎡당 0.30kW 기준 100kW)
 LINK_M = 500.0                      # 같은 이름 건물을 한 사업장으로 묶는 거리
 CF_YEARS = 3                        # 이용률 평균에 쓰는 최근 연도 수
 USE_PHOTO = False                   # 사진 판독(자가용 추정) 결과는 전국 기준이 같아질 때까지 웹에 쓰지 않는다 (2026-11-18 결정)
