@@ -24,7 +24,7 @@ const mobile = () => innerWidth <= 760;
 const lc = s => String(s || '').toLowerCase();
 const hitQ = g => !f.q || lc(g.nm).includes(f.q) || lc(g.ad).includes(f.q);   // 검색어가 회사명·주소에 있는지
 // 지도를 맞출 때 여백: 폰에서 아래 패널이 올라와 있으면 그 높이만큼 비운다
-const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 60, left: 24, right: 24, bottom: $('side').offsetHeight + 16 } : 40;
+const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 56, left: 16, right: 16, bottom: Math.min($('side').offsetHeight + 8, $('map').offsetHeight * 0.42) } : 40;
 const getJson = u => fetch(u).then(r => { if (!r.ok) throw new Error(u + ' ' + r.status); return r.json(); });
 const store = { get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }, set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} } };
 
