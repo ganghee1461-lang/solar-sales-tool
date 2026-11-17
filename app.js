@@ -10,7 +10,7 @@ const byGroup = new Map();                 // 묶음 번호 -> 건물 목록
 const cache = new Map();                   // 지역 코드 -> 받아 둔 자료
 let index = null;                          // 통합 검색 색인 [회사명, 주소, 지역코드, 번호, 면적]
 let view = [], selected = null, base = 'base', popup = null;
-const f = { emd: '', sol: 'exclude', minC: 0, util: 0.5, kw: 0.10 };
+const f = { emd: '', sol: 'exclude', minC: 0, util: 0.5, sqm: 3.3 };   // sqm = 1kW당 필요 면적(㎡)
 
 const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
@@ -76,7 +76,7 @@ function drawMap() {
 
 // ===== 계산과 조건 =====
 function calc(g) {
-  g._cap = g.a * f.util * f.kw;                   // 추정 설비용량 kW
+  g._cap = g.a * f.util / f.sqm;                   // 추정 설비용량 kW
   g._cf = g.ey ? g.ey / 8760 : null;              // 이용률
   g._gen = g.ey ? g._cap * g.ey / 1000 : null;    // 연간 발전량 MWh
 }
@@ -91,7 +91,7 @@ function apply() {
   $('sN').textContent = num(view.length);
   $('sCap').textContent = num(view.reduce((s, g) => s + g._cap, 0) / 1000, 1);
   $('sGen').textContent = num(view.reduce((s, g) => s + (g._gen || 0), 0) / 1000, 1);
-  $('basisNow').textContent = `${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡` + (f.minC ? ` · ${num(f.minC)}kW 이상` : '');
+  $('basisNow').textContent = `${Math.round(f.util * 100)}% · 1kW당 ${f.sqm.toFixed(1)}㎡` + (f.minC ? ` · ${num(f.minC)}kW 이상` : '');
   drawList(); drawMap();
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
@@ -227,7 +227,7 @@ function bind() {
   $('solMode').onchange = e => { f.sol = e.target.value; apply(); };
   const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); apply(); }; };
   sl('util', 'vUtil', v => f.util = v / 100, v => v + '%');
-  sl('kw', 'vKw', v => f.kw = v / 100, v => (v / 100).toFixed(2) + 'kW');
+  sl('sqm', 'vSqm', v => f.sqm = v, v => v.toFixed(1) + '㎡');
   sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
   document.querySelectorAll('#basemap button').forEach(b => b.onclick = () => {
     if (base === b.dataset.base) return;
