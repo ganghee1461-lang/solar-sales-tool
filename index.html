@@ -15,19 +15,22 @@
     <header>
       <div class="ttl">
         <h1>지붕 태양광 후보</h1>
-        <select id="region" aria-label="지역"><option>진천군</option></select>
+        <select id="region" aria-label="지역"></select>
       </div>
       <div id="stats">
         <div><b id="sN">-</b><span>후보 회사</span></div>
         <div><b id="sCap">-</b><span>추정 용량 MW</span></div>
-        <div><b id="sGen">-</b><span>연간 발전량 GWh</span></div>
+        <div><b id="sGen">-</b><span>연 발전량 GWh</span></div>
       </div>
     </header>
 
     <div id="filters">
-      <input type="search" id="q" placeholder="회사명 또는 주소" aria-label="검색">
+      <div id="find">
+        <input type="search" id="q" placeholder="회사명·주소·지역 검색" aria-label="검색" autocomplete="off">
+        <ul id="hits" hidden></ul>
+      </div>
       <div class="row2">
-        <select id="emd" aria-label="읍면"><option value="">읍면 전체</option></select>
+        <select id="emd" aria-label="읍면동"></select>
         <select id="solMode" aria-label="기존 태양광">
           <option value="exclude">기존 태양광 제외</option>
           <option value="all">기존 태양광 포함</option>
@@ -42,7 +45,6 @@
           <input type="range" id="kw" min="5" max="22" step="1" value="10"></label>
         <label>최소 추정 용량 <b id="vMinC">0kW</b>
           <input type="range" id="minC" min="0" max="2000" step="50" value="0"></label>
-        <p>추정 용량 = 지붕 면적 × 설치 가능 비율 × ㎡당 설비용량</p>
       </details>
     </div>
 
@@ -58,10 +60,8 @@
     <div id="legend">
       <span><i class="c1"></i>후보</span>
       <span><i class="c2"></i>기존 태양광</span>
-      <span><i class="c3"></i>근처에 태양광</span>
-      <span><i class="dot"></i>태양광 시설 위치</span>
+      <span><i class="c3"></i>근처 태양광</span>
     </div>
-    <article id="detail" hidden></article>
     <button id="toggleSide">목록</button>
   </main>
 </div>

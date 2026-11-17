@@ -1,58 +1,54 @@
-"""진천군 지붕 태양광 후보 데이터를 만든다. (원본은 읽기만 하고, 결과는 data/ 폴더에 새로 쓴다)
+"""지붕 태양광 후보 자료를 지역(시군구)별로 만든다. 원본은 읽기만 하고 결과는 data/ 에 쓴다.
 
-입력
-  1) 연속수치지형도 건물 추출본(jsonl)  : GIS 자료/연속수치지형도-건물/가공/진천_사각범위_건물.jsonl
-  2) 전국태양광발전시설 표준데이터 원본  : GIS 자료/태양광시설-표준데이터/진천_원본_p*.json
+입력 (모두 ~/클로드코드/업무/GIS 자료 아래)
+  연속수치지형도-건물/가공/<지역>_건물.jsonl      건물 도형 (extract 스크립트 결과)
+  태양광시설-표준데이터/<지역>_원본_p*.json       기존 태양광 시설 (공공데이터포털)
+  공장등록-전국/가공/<시도>_<시군구>.json          전국공장등록현황 (전화번호)
 출력
-  data/jincheon.json          회사(묶음) 목록 + 기준 정보
-  data/jincheon_bldg.geojson  건물 도형
-  data/jincheon_solar.geojson 기존 태양광 시설 위치
+  data/regions.json              지역 목록
+  data/<코드>/info.json          회사(묶음) 목록
+  data/<코드>/bldg.geojson       건물 도형
+  data/<코드>/solar.geojson      기존 태양광 위치
+  data/search/<시도코드>.json    통합 검색용 색인
 
-실행
-  KAKAO_KEY=... python3 tools/build_data.py
+실행:  KAKAO_KEY=... python3 tools/build_data.py
 """
 import json, math, os, sys, glob, re, collections, urllib.request, urllib.parse, time
 from concurrent.futures import ThreadPoolExecutor
 
 HOME = os.path.expanduser('~')
 GIS = os.path.join(HOME, '클로드코드/업무/GIS 자료')
-SRC_BLDG = os.path.join(GIS, '연속수치지형도-건물/가공/진천_사각범위_건물.jsonl')
-SRC_SOLAR = os.path.join(GIS, '태양광시설-표준데이터')
-CACHE = os.path.join(GIS, '태양광시설-표준데이터/캐시')
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'data')
+CACHE = os.path.join(GIS, '태양광시설-표준데이터/캐시')
 KAKAO = os.environ.get('KAKAO_KEY', '')
 
-SGG = '43750'            # 진천군 법정동코드 앞 5자리
-MIN_AREA = 500.0         # 동 단위 최소 지붕 면적(㎡)
-KIND_OK = {'BDK004', 'BDK005'}   # 주택외건물, 무벽건물
-LINK_M = 500.0           # 같은 이름 건물을 한 사업장으로 묶는 거리(m)
-NEAR_M = 50.0            # 태양광 좌표가 건물 밖일 때 '근처'로 보는 거리(m)
-EMD = {'43750250': '진천읍', '43750253': '덕산읍', '43750320': '초평면', '43750330': '문백면',
-       '43750340': '백곡면', '43750350': '이월면', '43750370': '광혜원면'}
-SERV = {'BDS000': '미분류', 'BDS001': '주택', 'BDS002': '근린생활시설', 'BDS003': '문화및집회시설', 'BDS004': '종교시설',
-        'BDS005': '판매시설', 'BDS006': '운수시설', 'BDS007': '의료시설', 'BDS008': '교육연구시설', 'BDS009': '노유자시설',
-        'BDS010': '수련시설', 'BDS011': '운동시설', 'BDS012': '업무시설', 'BDS013': '숙박시설', 'BDS014': '위락시설',
-        'BDS015': '공장', 'BDS016': '창고시설', 'BDS017': '위험물저장및처리시설', 'BDS018': '자동차관련시설',
-        'BDS019': '동물및식물관련시설', 'BDS020': '분뇨및쓰레기처리시설', 'BDS021': '교정및군사시설', 'BDS022': '방송통신시설',
-        'BDS023': '발전시설', 'BDS024': '묘지관련시설', 'BDS025': '관광휴게시설', 'BDS026': '장례시설', 'BDS999': '기타시설'}
+# 지역을 추가하려면 여기에 한 줄을 더하고, 건물 추출본과 태양광 원본을 같은 이름 규칙으로 넣는다.
+REGIONS = [
+    {'code': '43750', 'sido': '충청북도', 'name': '진천군', 'bldg': '진천_사각범위_건물.jsonl', 'solar': '진천_원본_p*.json'},
+]
+MIN_AREA = 500.0                    # 동 단위 최소 지붕 면적(㎡)
+KIND_OK = {'BDK004', 'BDK005'}      # 주택외건물, 무벽건물
+USE_OK = {'BDS015', 'BDS016'}       # 공장, 창고시설
+LINK_M = 500.0                      # 같은 이름 건물을 한 사업장으로 묶는 거리
+NEAR_M = 50.0                       # 태양광 좌표가 건물 밖일 때 '근처'로 보는 거리
+REG_NAME_M = 300.0                  # 공장등록 주소와 이름이 같은 건물을 찾는 거리
+REG_ADDR_M = 30.0                   # 이름이 달라도 같은 곳으로 보는 거리
+PV = {'tilt': 10, 'loss': 14}
 
 # ---------- 좌표 변환 (EPSG:5179 <-> 경위도, GRS80) ----------
 A = 6378137.0; F = 1 / 298.257222101; K0 = 0.9996; LAT0 = math.radians(38); LON0 = math.radians(127.5); FE = 1e6; FN = 2e6
 E2 = 2 * F - F * F; EP2 = E2 / (1 - E2)
-
 def _M(p):
     return A * ((1 - E2 / 4 - 3 * E2 ** 2 / 64 - 5 * E2 ** 3 / 256) * p - (3 * E2 / 8 + 3 * E2 ** 2 / 32 + 45 * E2 ** 3 / 1024) * math.sin(2 * p)
                 + (15 * E2 ** 2 / 256 + 45 * E2 ** 3 / 1024) * math.sin(4 * p) - (35 * E2 ** 3 / 3072) * math.sin(6 * p))
 M0 = _M(LAT0)
-
 def to_xy(lon, lat):
     p = math.radians(lat); l = math.radians(lon)
     N = A / math.sqrt(1 - E2 * math.sin(p) ** 2); T = math.tan(p) ** 2; C = EP2 * math.cos(p) ** 2; a = (l - LON0) * math.cos(p)
     x = FE + K0 * N * (a + (1 - T + C) * a ** 3 / 6 + (5 - 18 * T + T * T + 72 * C - 58 * EP2) * a ** 5 / 120)
     y = FN + K0 * (_M(p) - M0 + N * math.tan(p) * (a * a / 2 + (5 - T + 9 * C + 4 * C * C) * a ** 4 / 24 + (61 - 58 * T + T * T + 600 * C - 330 * EP2) * a ** 6 / 720))
     return x, y
-
 def to_ll(x, y):
     M = M0 + (y - FN) / K0
     mu = M / (A * (1 - E2 / 4 - 3 * E2 ** 2 / 64 - 5 * E2 ** 3 / 256))
@@ -72,22 +68,19 @@ def centroid(ring):
     for i in range(len(ring) - 1):
         x0, y0 = ring[i]; x1, y1 = ring[i + 1]; c = x0 * y1 - x1 * y0
         a += c; cx += (x0 + x1) * c; cy += (y0 + y1) * c
-    if abs(a) < 1e-9:
-        return sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring)
+    if abs(a) < 1e-9: return sum(p[0] for p in ring) / len(ring), sum(p[1] for p in ring) / len(ring)
     return cx / (3 * a), cy / (3 * a)
-
 def inside(x, y, rings):
     c = False
     for r in rings:
         j = len(r) - 1
         for i in range(len(r)):
             xi, yi = r[i]; xj, yj = r[j]
-            if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi:
-                c = not c
+            if (yi > y) != (yj > y) and x < (xj - xi) * (y - yi) / (yj - yi) + xi: c = not c
             j = i
     return c
-
 def dist_to(x, y, rings):
+    if inside(x, y, rings): return 0.0
     best = 1e18
     for r in rings:
         for i in range(len(r) - 1):
@@ -101,12 +94,11 @@ def dist_to(x, y, rings):
 def cache_load(name):
     p = os.path.join(CACHE, name)
     return json.load(open(p, encoding='utf-8')) if os.path.exists(p) else {}
-
 def cache_save(name, d):
     os.makedirs(CACHE, exist_ok=True)
     json.dump(d, open(os.path.join(CACHE, name), 'w', encoding='utf-8'), ensure_ascii=False)
-
 def http_json(url, headers=None, tries=3):
+    err = None
     for t in range(tries):
         try:
             with urllib.request.urlopen(urllib.request.Request(url, headers=headers or {}), timeout=30) as r:
@@ -114,40 +106,53 @@ def http_json(url, headers=None, tries=3):
         except Exception as e:
             err = e; time.sleep(1.5 * (t + 1))
     return {'_error': str(err)}
-
 def kakao(path, **q):
     return http_json('https://dapi.kakao.com/v2/local/' + path + '?' + urllib.parse.urlencode(q), {'Authorization': 'KakaoAK ' + KAKAO})
-
 def clean_addr(a):
-    """'충청북도 진천군 문백면 문덕리 285-16 A동' -> 첫 지번까지만"""
+    a = a.replace('번지', ' ')
     m = re.match(r'^(.*?(?:리|동|가|로|길)\s+(?:산\s*)?\d+(?:-\d+)?)', a)
     return m.group(1) if m else a
+def geocode_many(addrs):
+    """주소 목록 -> {주소: [경도, 위도] 또는 None}. 한 번 찾은 주소는 캐시에서 읽는다."""
+    gc = cache_load('geocode.json'); todo = [a for a in dict.fromkeys(addrs) if a and a not in gc]
+    if todo and KAKAO:
+        def one(raw):
+            r = kakao('search/address.json', query=clean_addr(raw)); doc = (r.get('documents') or [None])[0]
+            return raw, ([float(doc['x']), float(doc['y'])] if doc else None)
+        with ThreadPoolExecutor(6) as ex:
+            for raw, v in ex.map(one, todo): gc[raw] = v
+        cache_save('geocode.json', gc)
+    return gc
 
-# ---------- 1. 건물 ----------
-def main():
-    os.makedirs(OUT, exist_ok=True)
+def norm(s): return re.sub(r'\s+', '', s or '')
+def core(s):
+    """회사명 비교용: 법인 표기, 공장·사업장 꼬리말, 기호를 뗀 알맹이"""
+    s = re.sub(r'\(주\)|㈜|주식회사|\(유\)|유한회사|\(합\)|\(자\)|농업회사법인|영농조합법인|\(사\)', '', s or '')
+    s = re.sub(r'[\s\.\,\(\)\-·&]', '', s).lower()
+    s = re.sub(r'(제?\d+공장|진천공장|진천사업장|진천지점|공장|사업장|지점|본사|물류센터)+$', '', s)
+    return s
+def same_name(a, b):
+    a, b = core(a), core(b)
+    return len(a) >= 2 and len(b) >= 2 and (a in b or b in a)
+
+# ---------- 지역 하나 만들기 ----------
+def build(reg):
+    code = reg['code']; print('==', reg['sido'], reg['name'])
     allb = []
-    for line in open(SRC_BLDG, encoding='utf-8'):
+    for line in open(os.path.join(GIS, '연속수치지형도-건물/가공', reg['bldg']), encoding='utf-8'):
         r = json.loads(line)
-        if r['attrs']['BJCD'].startswith(SGG): allb.append(r)
-    print('진천군 전체 건물', len(allb))
+        if r['attrs']['BJCD'].startswith(code): allb.append(r)
     for b in allb:
         xs = [p[0] for r in b['rings'] for p in r]; ys = [p[1] for r in b['rings'] for p in r]
         b['bb'] = (min(xs), min(ys), max(xs), max(ys)); b['c'] = centroid(b['rings'][0])
     cand = [b for b in allb if b['area_m2'] >= MIN_AREA and b['attrs']['KIND'] in KIND_OK]
-    chk = [b for b in allb if b['area_m2'] >= MIN_AREA and b['attrs']['SERV'] in ('BDS015', 'BDS016')]
-    chk_in = [b for b in chk if b['attrs']['KIND'] in KIND_OK]
-    print('후보(500㎡ 이상, 주택외·무벽)', len(cand), round(sum(b['area_m2'] for b in cand)))
-    print('검증: 공장+창고 500㎡ 이상', len(chk), round(sum(b['area_m2'] for b in chk)), '/ 그중 후보 포함', len(chk_in), round(sum(b['area_m2'] for b in chk_in)))
+    print('전체 건물', len(allb), '/ 500㎡ 이상 주택외·무벽', len(cand))
 
-    # ---------- 2. 묶기 ----------
-    def norm(s): return re.sub(r'\s+', '', s)
+    # 1) 묶기: 지도 표기 이름이 같고 가까운 건물끼리
     keyed = collections.defaultdict(list)
     for i, b in enumerate(cand):
         a = b['attrs']; nm = norm(a['ANNO'] or a['NAME'])
-        if nm: k = ('N', nm)
-        elif a['RDNM']: k = ('R', a['RDNM'] + '-' + a['BONU'] + '-' + a['BUNU'])
-        else: k = ('U', str(i))
+        k = ('N', nm) if nm else ('R', a['RDNM'] + '-' + a['BONU'] + '-' + a['BUNU']) if a['RDNM'] else ('U', str(i))
         keyed[k].append(i)
     groups = []
     for k, idxs in keyed.items():
@@ -162,71 +167,89 @@ def main():
         cl = collections.defaultdict(list)
         for i in idxs: cl[find(i)].append(i)
         for m in cl.values(): groups.append((k, m))
+    # 주용도가 공장·창고인 묶음만 남기고 면적 큰 순으로 번호를 매긴다
+    def main_use(m):
+        u = collections.Counter()
+        for i in m: u[cand[i]['attrs']['SERV']] += cand[i]['area_m2']
+        return max(u, key=u.get)
+    groups = [g for g in groups if main_use(g[1]) in USE_OK]
     groups.sort(key=lambda g: -sum(cand[i]['area_m2'] for i in g[1]))
     for gid, (k, m) in enumerate(groups):
         for i in m: cand[i]['gid'] = gid
-    print('묶음 수', len(groups), '(이름 있음', sum(1 for g in groups if g[0][0] == 'N'), ')')
+    gb = [b for b in cand if 'gid' in b]
+    print('묶음', len(groups), '건물', len(gb), '면적', round(sum(b['area_m2'] for b in gb)))
 
-    # ---------- 3. 기존 태양광 ----------
+    cell = 100.0
+    def make_grid(items, pad):
+        g = collections.defaultdict(list)
+        for i, b in enumerate(items):
+            for gx in range(int((b['bb'][0] - pad) // cell), int((b['bb'][2] + pad) // cell) + 1):
+                for gy in range(int((b['bb'][1] - pad) // cell), int((b['bb'][3] + pad) // cell) + 1): g[(gx, gy)].append(i)
+        return g
+    grid_all = make_grid(allb, 0); grid_near = make_grid(gb, NEAR_M); grid_reg = make_grid(gb, REG_NAME_M)
+
+    # 2) 기존 태양광
     sol = []
-    for f in sorted(glob.glob(os.path.join(SRC_SOLAR, '진천_원본_p*.json'))):
+    for f in sorted(glob.glob(os.path.join(GIS, '태양광시설-표준데이터', reg['solar']))):
         d = json.load(open(f, encoding='utf-8')); d = d.get('response', d); x = d['body']['items']; sol += x['item'] if isinstance(x, dict) else x
-    print('태양광 시설', len(sol), '용량합', round(sum(float(s.get('capa') or 0) for s in sol), 1))
-    gc = cache_load('geocode.json')
-    todo = [s for s in sol if not s.get('latitude') and (s.get('lctnRoadNmAddr') or s.get('lctnLotnoAddr')) not in gc]
-    if todo and KAKAO:
-        def geo(s):
-            raw = s.get('lctnRoadNmAddr') or s.get('lctnLotnoAddr'); r = kakao('search/address.json', query=clean_addr(raw))
-            doc = (r.get('documents') or [None])[0]
-            return raw, ([float(doc['x']), float(doc['y'])] if doc else None)
-        with ThreadPoolExecutor(6) as ex:
-            for raw, v in ex.map(geo, todo): gc[raw] = v
-        cache_save('geocode.json', gc)
-    cell = 100.0; grid = collections.defaultdict(list); cgrid = collections.defaultdict(list)
-    for i, b in enumerate(allb):
-        for gx in range(int(b['bb'][0] // cell), int(b['bb'][2] // cell) + 1):
-            for gy in range(int(b['bb'][1] // cell), int(b['bb'][3] // cell) + 1): grid[(gx, gy)].append(i)
-    for i, b in enumerate(cand):
-        for gx in range(int((b['bb'][0] - NEAR_M) // cell), int((b['bb'][2] + NEAR_M) // cell) + 1):
-            for gy in range(int((b['bb'][1] - NEAR_M) // cell), int((b['bb'][3] + NEAR_M) // cell) + 1): cgrid[(gx, gy)].append(i)
+    sdate = collections.Counter(s.get('crtrYmd') for s in sol).most_common(1)[0][0] if sol else ''
+    gc = geocode_many([(s.get('lctnRoadNmAddr') or s.get('lctnLotnoAddr')) for s in sol if not s.get('latitude')])
     gsolar = collections.defaultdict(list); spts = []; stat = collections.Counter()
     for s in sol:
         raw = s.get('lctnRoadNmAddr') or s.get('lctnLotnoAddr') or ''
-        if s.get('latitude'): lon, lat, src = float(s['longitude']), float(s['latitude']), '원본 좌표'
-        elif gc.get(raw): lon, lat, src = gc[raw][0], gc[raw][1], '주소로 찾은 좌표'
+        if s.get('latitude'): lon, lat = float(s['longitude']), float(s['latitude'])
+        elif gc.get(raw): lon, lat = gc[raw]
         else: stat['위치 못 찾음'] += 1; continue
-        x, y = to_xy(lon, lat); hit = None; how = None
-        for i in grid.get((int(x // cell), int(y // cell)), []):
+        x, y = to_xy(lon, lat); hit = None; how = 'none'
+        for i in grid_all.get((int(x // cell), int(y // cell)), []):
             b = allb[i]
             if b['bb'][0] <= x <= b['bb'][2] and b['bb'][1] <= y <= b['bb'][3] and inside(x, y, b['rings']):
-                hit = b; how = 'on'; break
-        if hit is not None and 'gid' not in hit: stat['후보 아닌 건물 위'] += 1; hit = None; how = 'other'
-        if hit is None and how != 'other':
+                if 'gid' in b: hit = b; how = 'on'
+                else: how = 'other'
+                break
+        if how == 'none':
             best = (NEAR_M + 1, None)
-            for i in cgrid.get((int(x // cell), int(y // cell)), []):
-                d = dist_to(x, y, cand[i]['rings'])
-                if d < best[0]: best = (d, cand[i])
-            if best[1] is not None and best[0] <= NEAR_M: hit = best[1]; how = 'near'
-        rec = {'nm': s.get('solarGenFcltNm', ''), 'kw': float(s.get('capa') or 0), 'yr': s.get('instlYr', ''), 'ad': raw, 'src': src}
-        roof = bool(re.search(r'(주|부)\s*\d|[A-Za-z가-힣]동(\s|,|$)|지붕|옥상', raw.split('리')[-1] if '리' in raw else raw))
-        rec['roof'] = roof
-        if hit is not None and how in ('on', 'near'):
-            gsolar[hit['gid']].append(dict(rec, how=how)); stat['후보 건물 위' if how == 'on' else '후보 건물 %dm 이내' % NEAR_M] += 1
-        elif how != 'other': stat['건물과 무관(땅 설치 등)'] += 1
-        spts.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [round(lon, 6), round(lat, 6)]},
-                     'properties': dict(rec, m=(how if how in ('on', 'near') else 'none'))})
-    print('태양광 매칭', dict(stat))
+            for i in grid_near.get((int(x // cell), int(y // cell)), []):
+                d = dist_to(x, y, gb[i]['rings'])
+                if d < best[0]: best = (d, gb[i])
+            if best[1] is not None: hit = best[1]; how = 'near'
+        rec = {'nm': s.get('solarGenFcltNm', ''), 'kw': float(s.get('capa') or 0), 'yr': s.get('instlYr', '')}
+        if hit is not None: gsolar[hit['gid']].append(dict(rec, how=how))
+        stat[{'on': '후보 건물 위', 'near': '후보 건물 %dm 안' % NEAR_M, 'other': '후보 아닌 건물 위', 'none': '건물과 무관'}[how]] += 1
+        spts.append({'type': 'Feature', 'geometry': {'type': 'Point', 'coordinates': [round(lon, 6), round(lat, 6)]}, 'properties': dict(rec, ad=raw)})
+    print('태양광', len(sol), dict(stat))
 
-    # ---------- 4. 이용률 (PVGIS, 0.05도 격자) ----------
+    # 3) 공장등록(전화번호) 연결
+    rp = os.path.join(GIS, '공장등록-전국/가공', '%s_%s.json' % (reg['sido'], reg['name']))
+    regs = json.load(open(rp, encoding='utf-8')) if os.path.exists(rp) else []
+    gc = geocode_many([r.get('공장주소_지번') or r.get('공장주소') for r in regs])
+    greg = collections.defaultdict(list); rstat = collections.Counter()
+    for r in regs:
+        pt = gc.get(r.get('공장주소_지번') or r.get('공장주소'))
+        if not pt and r.get('공장주소'): pt = geocode_many([r['공장주소']]).get(r['공장주소'])
+        if not pt: rstat['주소 위치 못 찾음'] += 1; continue
+        x, y = to_xy(*pt); byname = (1e18, None); byaddr = (1e18, None)
+        for i in grid_reg.get((int(x // cell), int(y // cell)), []):
+            b = gb[i]; d = dist_to(x, y, b['rings'])
+            if d <= REG_NAME_M and d < byname[0] and same_name(r['회사명'], b['attrs']['ANNO'] or b['attrs']['NAME']): byname = (d, b)
+            if d <= REG_ADDR_M and d < byaddr[0]: byaddr = (d, b)
+        hit, how = (byname[1], 'name') if byname[1] is not None else (byaddr[1], 'addr') if byaddr[1] is not None else (None, None)
+        if hit is None: rstat['맞는 후보 건물 없음'] += 1; continue
+        rstat['이름 일치' if how == 'name' else '주소 일치'] += 1
+        tel = (r.get('전화번호') or '').strip()
+        greg[hit['gid']].append({'nm': r['회사명'], 'tel': tel, 'own': r.get('보유구분', ''), 'how': how, 'ba': float(r.get('건축면적') or 0)})
+    print('공장등록', len(regs), dict(rstat))
+
+    # 4) 이용률 (PVGIS, 0.05도 격자)
     pv = cache_load('pvgis.json'); step = 0.05
-    def cellkey(lon, lat): return '%.2f,%.2f' % (round(lon / step) * step, round(lat / step) * step)
+    def ck(lon, lat): return '%.2f,%.2f' % (round(lon / step) * step, round(lat / step) * step)
     centers = {}
     for gid, (k, m) in enumerate(groups):
-        big = max(m, key=lambda i: cand[i]['area_m2']); centers[gid] = to_ll(*cand[big]['c'])
-    need = sorted({cellkey(*c) for c in centers.values()} - set(pv))
+        centers[gid] = to_ll(*cand[max(m, key=lambda i: cand[i]['area_m2'])]['c'])
+    need = sorted({ck(*c) for c in centers.values()} - set(pv))
     def pvcalc(key):
         lon, lat = key.split(',')
-        r = http_json('https://re.jrc.ec.europa.eu/api/v5_3/PVcalc?lat=%s&lon=%s&peakpower=1&loss=14&angle=10&aspect=0&outputformat=json' % (lat, lon))
+        r = http_json('https://re.jrc.ec.europa.eu/api/v5_3/PVcalc?lat=%s&lon=%s&peakpower=1&loss=%d&angle=%d&aspect=0&outputformat=json' % (lat, lon, PV['loss'], PV['tilt']))
         try: return key, r['outputs']['totals']['fixed']['E_y']
         except Exception: return key, None
     if need:
@@ -234,15 +257,12 @@ def main():
             for key, v in ex.map(pvcalc, need):
                 if v: pv[key] = v
         cache_save('pvgis.json', pv)
-    print('이용률 격자', len(pv), '값 범위', min(pv.values()), max(pv.values()))
 
-    # ---------- 5. 주소 (묶음 대표 건물 위치) ----------
-    rg = cache_load('revgeo.json')
-    todo = [gid for gid in centers if '%f,%f' % centers[gid] not in rg]
+    # 5) 주소 (묶음 대표 건물 위치)
+    rg = cache_load('revgeo.json'); todo = [gid for gid in centers if '%f,%f' % centers[gid] not in rg]
     if todo and KAKAO:
         def rev(gid):
-            lon, lat = centers[gid]; r = kakao('geo/coord2address.json', x=lon, y=lat)
-            doc = (r.get('documents') or [None])[0]; v = None
+            lon, lat = centers[gid]; r = kakao('geo/coord2address.json', x=lon, y=lat); doc = (r.get('documents') or [None])[0]; v = None
             if doc: v = {'road': (doc.get('road_address') or {}).get('address_name', ''), 'jibun': (doc.get('address') or {}).get('address_name', '')}
             return '%f,%f' % (lon, lat), v
         with ThreadPoolExecutor(6) as ex:
@@ -250,45 +270,51 @@ def main():
                 if v is not None: rg[key] = v
         cache_save('revgeo.json', rg)
 
-    # ---------- 6. 쓰기 ----------
+    # 6) 쓰기
     G = []
     for gid, (k, m) in enumerate(groups):
         bs = [cand[i] for i in m]; big = max(bs, key=lambda b: b['area_m2']); lon, lat = centers[gid]
-        uses = collections.Counter()
-        for b in bs: uses[b['attrs']['SERV']] += b['area_m2']
-        ad = rg.get('%f,%f' % (lon, lat)) or {}
-        ey = pv.get(cellkey(lon, lat))
-        so = sorted(gsolar.get(gid, []), key=lambda s: -s['kw'])
-        G.append({'id': gid, 'nm': (big['attrs']['ANNO'] or big['attrs']['NAME']) if k[0] == 'N' else '', 'emd': EMD.get(big['attrs']['BJCD'][:8], ''),
-                  'road': ad.get('road', ''), 'jibun': ad.get('jibun', ''), 'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)),
-                  'use': max(uses, key=uses.get), 'uses': {u: round(v) for u, v in uses.items()}, 'ey': ey,
-                  'sol': so, 'solst': ('on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none'), 'solkw': round(sum(s['kw'] for s in so), 1)})
-    # 주용도가 공장·창고시설인 묶음만 싣는다(번호는 용량 큰 순으로 다시 매김)
-    G = [g for g in G if g['use'] in ('BDS015', 'BDS016')]
-    remap = {g['id']: i for i, g in enumerate(G)}
-    for g in G: g['id'] = remap[g['id']]
-    cand_all = cand; cand = [b for b in cand if b['gid'] in remap]
-    for b in cand: b['gid'] = remap[b['gid']]
-    feats = []
-    for b in cand:
-        coords = [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]
-        feats.append({'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': coords},
-                      'properties': {'g': b['gid'], 'a': round(b['area_m2']), 's': b['attrs']['SERV'], 'k': b['attrs']['KIND'], 'f': b['attrs']['NMLY'], 'n': b['attrs']['ANNO'] or b['attrs']['NAME']}})
-    meta = {'region': '충청북도 진천군', 'built': time.strftime('%Y-%m-%d'),
-            'bldg_src': '브이월드 「건물」(국토지리정보원 연속수치지형도 N3A_B0010000), 갱신일 2026-10-01',
-            'solar_src': '전국태양광발전시설 표준데이터(공공데이터포털), 진천군 기준일 2026-07-20, %d건' % len(sol),
-            'pv_src': 'PVGIS 5.3 (PVGIS-ERA5, 2005~2023), 경사 10도·정남·손실 14% 가정',
-            'min_area': MIN_AREA, 'near_m': NEAR_M, 'link_m': LINK_M, 'serv': SERV,
-            'n_bldg': len(cand), 'area': round(sum(b['area_m2'] for b in cand)), 'n_group': len(G), 'pv_tilt': 10, 'pv_loss': 14, 'solar_match': dict(stat),
-            'check_factory_wh': {'n': len(chk_in), 'area': round(sum(b['area_m2'] for b in chk_in))}}
+        ad = rg.get('%f,%f' % (lon, lat)) or {}; so = sorted(gsolar.get(gid, []), key=lambda s: -s['kw'])
+        rr = sorted(greg.get(gid, []), key=lambda r: (r['how'] != 'name', not r['tel'], r['own'] != '자가', -r['ba']))
+        mapnm = (big['attrs']['ANNO'] or big['attrs']['NAME']) if k[0] == 'N' else ''
+        tok = (ad.get('jibun') or '').split()
+        g = {'id': gid, 'nm': mapnm or (rr[0]['nm'] if rr else ''), 'emd': tok[2] if len(tok) > 2 else '', 'ad': ad.get('road') or ad.get('jibun') or '',
+             'c': [lon, lat], 'n': len(bs), 'a': round(sum(b['area_m2'] for b in bs)), 'ey': pv.get(ck(lon, lat)),
+             'st': 'on' if any(s['how'] == 'on' for s in so) else 'near' if so else 'none', 'sn': len(so), 'skw': round(sum(s['kw'] for s in so), 1)}
+        if rr:
+            g['tel'] = rr[0]['tel']; g['own'] = rr[0]['own']
+            if mapnm and not same_name(mapnm, rr[0]['nm']): g['telnm'] = rr[0]['nm']     # 번호 주인이 지도 표기와 다를 때만 표시
+            if len(rr) > 1: g['regn'] = len(rr)
+        G.append(g)
+    feats = [{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]},
+              'properties': {'g': b['gid'], 'st': G[b['gid']]['st']}} for b in gb]
+    od = os.path.join(OUT, code); os.makedirs(od, exist_ok=True)
     def dump(name, obj):
-        p = os.path.join(OUT, name); json.dump(obj, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); print(name, round(os.path.getsize(p) / 1e6, 2), 'MB')
-    dump('jincheon.json', {'meta': meta, 'groups': G})
-    dump('jincheon_bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
-    dump('jincheon_solar.geojson', {'type': 'FeatureCollection', 'features': spts})
-    st = collections.Counter(g['solst'] for g in G)
-    print('묶음별 기존 태양광', dict(st), ' 주소 채움', sum(1 for g in G if g['road'] or g['jibun']), '/', len(G))
-    for g in G[:8]: print(g['nm'] or '(이름 없음)', g['emd'], g['n'], g['a'], g['ey'], g['solst'], g['solkw'], g['road'] or g['jibun'])
+        p = os.path.join(od, name); json.dump(obj, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':')); print(' ', code + '/' + name, round(os.path.getsize(p) / 1e6, 2), 'MB')
+    meta = {'code': code, 'sido': reg['sido'], 'name': reg['name'], 'pv': PV, 'solar_date': sdate, 'n_solar': len(sol),
+            'check': {'n_bldg': len(gb), 'area': round(sum(b['area_m2'] for b in gb)), 'n_group': len(G), 'solar': dict(stat), 'reg': dict(rstat)}}
+    dump('info.json', {'meta': meta, 'groups': G})
+    dump('bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
+    dump('solar.geojson', {'type': 'FeatureCollection', 'features': spts})
+    tel = sum(1 for g in G if g.get('tel')); print('  전화번호 있는 묶음', tel, '/', len(G), ' 이름 없는 묶음', sum(1 for g in G if not g['nm']))
+    xs = [g['c'][0] for g in G]; ys = [g['c'][1] for g in G]
+    short = lambda a: re.sub(r'^\S+\s+%s\s*' % re.escape(reg['name']), '', a)
+    return ({'code': code, 'sido': reg['sido'], 'name': reg['name'], 'n': len(G), 'bbox': [min(xs), min(ys), max(xs), max(ys)]},
+            [[g['nm'], short(g['ad']), code, g['id'], g['a']] for g in G])
+
+def main():
+    os.makedirs(os.path.join(OUT, 'search'), exist_ok=True)
+    regions = []; index = collections.defaultdict(list)
+    for reg in REGIONS:
+        info, rows = build(reg); regions.append(info); index[reg['code'][:2]] += rows
+    for sc, rows in index.items():
+        p = os.path.join(OUT, 'search', sc + '.json'); json.dump(rows, open(p, 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+        print('search/%s.json' % sc, len(rows), '건', round(os.path.getsize(p) / 1e6, 2), 'MB')
+    json.dump({'built': time.strftime('%Y-%m-%d'), 'regions': regions,
+               'src': {'bldg': '브이월드 「건물」(국토지리정보원 연속수치지형도), 2026-10-01', 'solar': '전국태양광발전시설 표준데이터(공공데이터포털)',
+                       'pv': 'PVGIS 5.3 (PVGIS-ERA5, 2005~2023)', 'reg': '전국공장등록현황(한국산업단지공단), 2026-06 말'}},
+              open(os.path.join(OUT, 'regions.json'), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+    print('regions.json', len(regions), '곳')
 
 if __name__ == '__main__':
     main()
