@@ -105,7 +105,7 @@ function apply() {
   if (region && region.nation) {
     view = []; const rows = sidoRows();
     $('sN').textContent = num(rows.reduce((a, r) => a + r.n, 0)); $('sCap').textContent = '-'; $('sGen').textContent = '-';
-    $('list').innerHTML = '<li class="msg">광역을 고르면 회사 목록이 나옵니다 · 회사 수는 조건 적용 전</li>' + rows.map((r, i) => `
+    $('list').innerHTML = rows.map((r, i) => `
       <li data-sido="${esc('S:' + r.s)}" class="sido">
         <span class="rk">${i + 1}</span><span class="nm">${esc(r.s)}</span><span class="cap">${num(r.n)}<small>곳</small></span>
         <span class="ad">시군구 ${r.k}곳</span><span class="ar"></span>
@@ -118,7 +118,6 @@ function apply() {
     if (f.emd && g.sub !== f.emd) return false;
     if (!hitQ(g)) return false;
     if (f.sol === 'exclude' && g.st === 'on') return false;   // 모든 동에 태양광이 있는 곳만 뺀다
-    if (f.sol === 'only' && g.st === 'none') return false;
     return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
   }).sort((a, b) => b._cap - a._cap);
   $('sN').textContent = num(view.length);
@@ -141,9 +140,9 @@ function drawList() {
       <span class="ar">${num(g.a)}㎡ · ${g.n}동${g.nt > g.n ? ` <em>기존 ${g.nt - g.n}동 제외</em>` : ''}</span>
       <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
     </li>`).join('')
-    + (view.length > LIST_MAX ? `<li class="msg">용량 큰 순으로 ${LIST_MAX}곳까지 표시 (전체 ${num(view.length)}곳)</li>` : '')
-    + (view.length ? '' : `<li class="msg">${f.q ? `${esc(scopeName())} 안에 '${esc(f.q)}' 검색 결과가 없습니다<br><small>범위를 넓히려면 위 칸에서 전체를 고르세요</small>` : '조건에 맞는 곳이 없습니다'}</li>`)
-    + (outs.length ? `<li class="msg sub">아래는 지금 조건 밖이라 목록에서 빠진 곳</li>` + outs.map(g => `
+    + (view.length > LIST_MAX ? `<li class="msg">${LIST_MAX} / ${num(view.length)}곳</li>` : '')
+    + (view.length ? '' : '<li class="msg">결과 없음</li>')
+    + (outs.length ? '<li class="msg sub">조건 밖</li>' + outs.map(g => `
     <li data-id="${g.id}" class="out${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="rk">-</span>
       <span class="nm">${esc(gname(g))}<span class="tag">${g.st === 'on' ? '기존 태양광' : '조건 밖'}</span></span>
@@ -164,7 +163,7 @@ function card(g) {
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>
-    <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>${ex ? '남은 지붕 기준' : '추정 용량'}</span></div>
+    <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
     <dl>
       <dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>
       <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동 제외<small>판매용(등록) ${g.sn}건 · ${num(g.skw)}kW</small></dd>` : '<dd class="off">등록 없음</dd>'}
@@ -205,12 +204,6 @@ async function fetchRegion(code) {
   }
   return cache.get(code);
 }
-// 지금 고른 범위의 이름(검색창 안내에 쓴다)
-function scopeName() {
-  if (!region || region.nation) return '전국';
-  const s = region.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '');
-  return (region.all || region.name === region.sido ? region.sido : s + ' ' + region.name) + (f.emd ? ' ' + f.emd : '');
-}
 // 광역 · 시군구 · 읍면동 세 칸을 지금 범위에 맞게 채운다. 각 칸 맨 위는 '전체'
 function fillScope() {
   const sido = region.nation ? '' : region.sido, sggs = sido ? regions.filter(r => r.sido === sido) : [], single = sggs.length === 1;
@@ -223,7 +216,6 @@ function fillScope() {
   const emds = region.nation || region.all ? [] : [...new Set(groups.map(g => g.sub).filter(Boolean))].sort();
   $('emd').innerHTML = '<option value="">읍면동 전체</option>' + emds.map(e => `<option>${esc(e)}</option>`).join('');
   $('emd').value = f.emd; $('emd').disabled = !emds.length;
-  $('q').placeholder = scopeName() + ' 안에서 회사·주소 검색';
 }
 // 지도를 회사 위치들에 맞춘다(읍면동을 골랐을 때)
 function fitGroups(list) {
@@ -308,8 +300,8 @@ function search() {
   act = 0;
   const row = (h, i) => {
     const c = i ? '' : 'act';
-    if (h.type === 'region') return `<li data-i="${i}" class="${c}"><b>${esc(h.r.name)}</b><em>지역 이동</em><small>${esc(h.r.sido)} · 회사 ${num(h.r.n)}곳</small></li>`;
-    if (h.type === 'emd') return `<li data-i="${i}" class="${c}"><b>${esc(h.e)}</b><em>읍면동 보기</em><small>${esc(scopeName())} · 회사 ${num(h.n)}곳</small></li>`;
+    if (h.type === 'region') return `<li data-i="${i}" class="${c}"><b>${esc(h.r.name)}</b><em>${num(h.r.n)}곳</em><small>${esc(h.r.sido)}</small></li>`;
+    if (h.type === 'emd') return `<li data-i="${i}" class="${c}"><b>${esc(h.e)}</b><em>${num(h.n)}곳</em><small>${esc(region.name)}</small></li>`;
     return `<li data-i="${i}" class="${c}"><b>${esc(h.row[0] || '이름 없음')}</b><em>${num(h.row[4])}㎡</em><small>${esc(h.sub)}</small></li>`;
   };
   const wait = nation && !indexDone;

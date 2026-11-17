@@ -30,19 +30,17 @@
         <select id="emd" aria-label="읍면동"></select>
       </div>
       <div id="find">
-        <input type="search" id="q" placeholder="회사명·주소 검색" aria-label="검색" autocomplete="off">
+        <input type="search" id="q" placeholder="검색" aria-label="검색" autocomplete="off">
         <ul id="hits" hidden></ul>
       </div>
       <div class="row1">
         <select id="solMode" aria-label="기존 태양광">
-          <option value="exclude">기존 태양광 동 제외</option>
-          <option value="all">전체 지붕 보기</option>
-          <option value="only">기존 태양광 있는 회사</option>
+          <option value="all">전체</option>
+          <option value="exclude" selected>기존 태양광 제외</option>
         </select>
       </div>
       <details id="basis">
         <summary>조건 <span id="basisNow"></span></summary>
-        <p>추정 용량 = 후보 지붕 면적 × 설치 가능 비율 × ㎡당 설비용량. 기존 태양광이 있는 동은 후보 지붕에서 뺍니다.</p>
         <label>최소 추정 용량 <b id="vMinC">100kW</b>
           <input type="range" id="minC" min="100" max="5000" step="100" value="100"></label>
         <label>설치 가능 비율 <b id="vUtil">50%</b>
@@ -63,7 +61,7 @@
     </div>
     <div id="legend">
       <span><i class="c1"></i>후보</span>
-      <span><i class="c2"></i>기존 태양광(판매용 등록)</span>
+      <span><i class="c2"></i>기존 태양광</span>
     </div>
     <button id="toggleSide">목록</button>
   </main>
