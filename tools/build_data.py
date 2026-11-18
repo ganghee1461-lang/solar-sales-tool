@@ -170,7 +170,13 @@ def prepare():
                 m = RE_ROAD.search(r.get('공장주소') or ''); c = J['road_in_sido'].get((sido, m.group(1))) if m else None
                 if c and len(c) == 1: rc = next(iter(c)); code = rc[:5]; rk = (rc, int(m.group(2)), int(m.group(3) or 0)); rstat['시군구 이름 바뀜·도로명으로 찾음'] += 1
                 else: rstat['시군구 못 찾음'] += 1; MISS[(r['시도명'], r['시군구명'])] += 1; continue
-            regs[code].append({'nm': r['회사명'], 'tel': (r.get('전화번호') or '').strip(), 'own': r.get('보유구분') or '', 'ba': float(r.get('건축면적') or 0), 'rk': rk, 'jk': jk})
+            zone = (r.get('용도지역') or '').split('/')[-1].strip()
+            uniq = lambda v: ', '.join(dict.fromkeys(x.strip() for x in str(v or '').split(',') if x.strip()))
+            regs[code].append({'nm': r['회사명'], 'tel': (r.get('전화번호') or '').strip(), 'own': r.get('보유구분') or '', 'ba': float(r.get('건축면적') or 0), 'rk': rk, 'jk': jk,
+                               # 팝업에 보여 줄 공장 정보(원문 그대로)
+                               'f': {k: v for k, v in {'up': r.get('업종명') or '', 'pr': uniq(r.get('생산품')), 'sz': r.get('공장규모') or '', 'emp': int(float(r.get('종업원합계') or 0)),
+                                     'dan': (r.get('단지명') or '').strip(), 'ip': r.get('공장구분') or '', 'yr': (r.get('최초등록일') or '')[:4], 'land': round(float(r.get('용지면적') or 0)),
+                                     'zone': zone, 'jm': uniq(r.get('지목'))}.items() if v}})
             rstat['도로명 열쇠 있음' if rk else '도로명 열쇠 없음'] += 1
     print('공장등록', sum(len(v) for v in regs.values()), dict(rstat), flush=True)
     if MISS: print('  시군구 이름이 도로명주소 자료에 없는 곳', MISS.most_common(12), flush=True)
@@ -346,13 +352,17 @@ def build(arg):
         if rr:
             top = next((r for r in rr if r['tel']), rr[0])      # 번호가 있는 등록 건을 우선
             g['tel'] = top['tel']; g['own'] = top['own']
+            g['f'] = top['f']                                     # 공장 정보(업종·규모·입지 등)
+            if len(rr) > 1: g['fn'] = len(rr)                     # 이 건물 묶음에 등록된 공장 수
             if mapnm and not same_name(mapnm, top['nm']): g['telnm'] = top['nm']     # 번호 주인이 지도 표기와 다를 때만
         G.append(g)
     feats = [{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]},
               'properties': {'g': b['gid'], 'st': 'on' if (b.get('sol') or b.get('ph')) else 'none'}} for b in gb]
     od = os.path.join(OUT, code); os.makedirs(od, exist_ok=True)
     def dump(name, obj): json.dump(obj, open(os.path.join(od, name), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
+    fac = {g['id']: g.pop('f') for g in G if 'f' in g}
     dump('info.json', {'meta': {'code': code, 'sido': sido, 'name': sgname, 'cf': cf, 'solar_date': P['sdate']}, 'groups': G})
+    dump('fac.json', fac)
     dump('bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
     # 사진 판독 대상 목록(저장소 밖): 건물 고유번호, 묶음, 면적, 등록 태양광 여부, 외곽선
     td = os.path.join(GIS, '지붕사진/대상'); os.makedirs(td, exist_ok=True)

@@ -146,7 +146,7 @@ function apply() {
     return g._cap >= f.minC;                                  // 남은 지붕으로 낼 수 있는 용량이 기준 이상인 곳만
   }).sort((a, b) => b._cap - a._cap);
   drawList(); drawMap();
-  if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
+  if (selected && popup) showCard(selected);   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
 function drawList() {
   // 검색 중이면 조건(용량 기준 등) 때문에 빠진 회사도 아래에 흐리게 보여준다
@@ -167,6 +167,11 @@ function drawList() {
       <span class="ad">${esc(short(g.ad))}</span>
     </li>`).join('') : '');
 }
+document.addEventListener('click', e => {
+  const pr = e.target.closest('.card small.pr'); if (!pr) return;
+  const open = pr.classList.toggle('open'); pr.textContent = open ? pr.dataset.full : pr.dataset.short;
+  const b = pr.closest('.body'); if (b && b.onscroll) b.onscroll();   // 끝 흐림 다시 맞춤
+});
 $('list').addEventListener('click', e => {
   const s = e.target.closest('li[data-sido]'); if (s) return loadRegion(s.dataset.sido);
   const li = e.target.closest('li[data-id]'); if (li) select(groups[+li.dataset.id]);
@@ -177,18 +182,53 @@ function card(g) {
   const c = meta.cf, tip = c ? `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})` : '';
   // 대표번호는 누르면 걸리지 않게 글자로만 두고, 마우스를 올리거나 누르면 출처가 뜬다
   const telSrc = `출처: 전국공장등록현황(2026년 6월 말 기준) · 등록 회사 ${g.telnm || gname(g)}`;
-  const tel = g.tel ? `<span class="telno" tabindex="0" data-tip="${esc(telSrc)}">${esc(g.tel)}</span>${g.telnm ? `<small>${esc(g.telnm)}</small>` : ''}` : '';
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
-  return `<h2>${esc(gname(g))}</h2>
-    <div class="ad">${esc(short(g.ad))}</div>
-    <div class="cap"><span>추정 용량</span><b>${num(g._cap)}</b><small>kW</small></div>
-    <dl>
-      ${f.sol === 'all' ? `<dt>지붕</dt><dd>${num(g.at)}㎡ · ${g.nt}동</dd>` : `<dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>`}
-      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동${f.sol === 'all' ? '' : ' 제외'}<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
-      <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
-      <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
-      <dt>대표번호</dt>${tel ? `<dd>${tel}</dd>` : '<dd class="off">미확인</dd>'}
-    </dl>`;
+  const F = facOf(g), row = (k, v, sub, attr) => v ? `<dt>${k}</dt><dd>${v}${sub ? `<small${attr || ''}>${sub}</small>` : ''}</dd>` : '';
+  const pr = F && F.pr || '', PR = 40;   // 생산품은 40자에서 자르고 누르면 전체
+  const free = F && F.land > g.at ? F.land - g.at : 0;   // 부지에서 건물 지붕을 뺀 면적(대략)
+  const fac = F ? row('업종', esc((F.up || '').replace(/ 외 (\d+) ?종/, ' 외\u00a0$1종')), esc(pr.length > PR ? pr.slice(0, PR).trim() + '…' : pr), pr.length > PR ? ` class="pr" data-full="${esc(pr)}" data-short="${esc(pr.slice(0, PR).trim() + '…')}"` : '')
+      + row('규모', esc([F.sz, F.emp ? num(F.emp) + '명' : ''].filter(Boolean).join(' · ')), g.fn ? `등록 공장 ${g.fn}곳` : '')
+      + row('소유', esc(g.own || ''))
+      + row('입지', esc(F.dan || F.ip || ''), esc(F.zone || ''))
+      + row('부지', F.land ? num(F.land) + '㎡' : '', esc([free ? `건물 외 약 ${num(free)}㎡` : '', F.jm || ''].filter(Boolean).join(' · ')))
+      + row('등록', F.yr ? F.yr + '년' : '')
+    : facReady(g) ? '<dt>공장등록</dt><dd class="off">미확인</dd>' : '<dt>업종</dt><dd class="off">불러오는 중…</dd>';
+  return `<div class="head">
+      <h2>${esc(gname(g))}</h2>
+      <div class="ad">${esc(short(g.ad))}</div>
+      <div class="kv">
+        <div class="cap"><span>추정 용량</span><b>${num(g._cap)}</b><small>kW</small></div>
+        <div class="tel"><span>대표번호</span>${g.tel ? `<span class="telno" tabindex="0" data-tip="${esc(telSrc)}">${esc(g.tel)}</span>` : '<em>미확인</em>'}</div>
+      </div>
+    </div>
+    <div class="body">
+      <dl>
+        ${f.sol === 'all' ? `<dt>지붕</dt><dd>${num(g.at)}㎡ · ${g.nt}동</dd>` : `<dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>`}
+        <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동${f.sol === 'all' ? '' : ' 제외'}<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
+        <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
+        <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
+      </dl>
+      <div class="sec">공장${g.telnm ? `<span>${esc(g.telnm)}</span>` : ''}</div>
+      <dl>${fac}</dl>
+    </div>`;
+}
+// 팝업을 다시 그릴 때 보던 스크롤 위치를 지킨다. 아래에 더 있으면 끝을 흐리게
+function showCard(g) {
+  if (!popup) return;
+  const old = popup.getElement() && popup.getElement().querySelector('.body'), top = old ? old.scrollTop : 0;
+  popup.setHTML(card(g));
+  const body = popup.getElement() && popup.getElement().querySelector('.body'); if (!body) return;
+  body.scrollTop = top;
+  const more = () => body.classList.toggle('more', body.scrollTop + body.clientHeight < body.scrollHeight - 4);
+  body.onscroll = more; more();
+}
+// 공장 정보(fac.json)는 시군구별 파일이라 회사를 누를 때 그 시군구 것만 받는다
+const facCache = new Map();
+const facOf = g => { const d = facCache.get(g.rc); return d && !(d instanceof Promise) ? d[g.id - partOff.get(g.rc)] : null; };
+const facReady = g => { const d = facCache.get(g.rc); return d && !(d instanceof Promise); };
+function loadFac(code) {
+  if (!facCache.has(code)) facCache.set(code, getJson(`data/${code}/fac.json`).then(d => { facCache.set(code, d); return d; }).catch(() => { facCache.set(code, {}); return {}; }));
+  const d = facCache.get(code); return d instanceof Promise ? d : Promise.resolve(d);
 }
 function bounds(g) {
   const pts = byGroup.get(g.id).flatMap(x => x.geometry.coordinates[0]);
@@ -201,12 +241,14 @@ async function select(g) {
   const b = bounds(g), m = mobile();
   if (m) $('side').classList.add('hide');
   // 팝업은 건물 바로 옆(PC는 오른쪽, 폰은 아래)에 붙인다
-  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 64, bottom: Math.min(380, $('map').offsetHeight * 0.55), left: 24, right: 24 } : { top: 70, bottom: 70, left: 70, right: 400 }, maxZoom: 17.5, duration: 500 });
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 64, bottom: $('map').offsetHeight * 0.6, left: 24, right: 24 } : { top: 70, bottom: 70, left: 70, right: 420 }, maxZoom: 17.5, duration: 500 });
   if (popup) { popup.off('close', onPopupClose); popup.remove(); }
   popup = new maplibregl.Popup({ className: 'card', closeOnClick: false, focusAfterOpen: false, maxWidth: 'none', anchor: m ? 'top' : 'left', offset: 12 })
-    .setLngLat(m ? [(b[0] + b[2]) / 2, b[1]] : [b[2], (b[1] + b[3]) / 2]).setHTML(card(g)).addTo(map);
+    .setLngLat(m ? [(b[0] + b[2]) / 2, b[1]] : [b[2], (b[1] + b[3]) / 2]).setHTML('').addTo(map);
+  showCard(g);
   popup.on('close', onPopupClose);
   drawMap(); markList();
+  if (!facReady(g)) loadFac(g.rc).then(() => { if (selected === g && popup) showCard(g); });
 }
 function onPopupClose() { selected = null; popup = null; drawMap(); markList(); }
 function clearSelection() { if (popup) popup.remove(); }
