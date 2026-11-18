@@ -78,7 +78,7 @@ function addLayers() {
   // 회사 위치 점: 광역 전체처럼 건물 도형을 아직 안 받았거나 넓게 볼 때(확대 11 미만)
   map.addSource('p', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'p-dot', type: 'circle', source: 'p', maxzoom: 12,
-    paint: { 'circle-color': '#0b7a6b', 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 4.5], 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.6, 'circle-opacity': 0.9 } });
+    paint: { 'circle-color': COLOR, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 4.5], 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.6, 'circle-opacity': 0.9 } });
   // 선택한 곳: 진한 채움 + 노란 굵은 테두리
   map.addSource('sel', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'sel-fill', type: 'fill', source: 'sel', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.35 : 0.85 } });
@@ -100,7 +100,7 @@ function drawMap() {
   map.getSource('b').setData({ type: 'FeatureCollection', features: bldg.features.filter(x => ok.has(x.properties.g) && !(hide && x.properties.st === 'on')) });
   const emdOk = new Set(groups.filter(g => !f.emd || g.sub === f.emd).map(g => g.id));
   map.getSource('x').setData({ type: 'FeatureCollection', features: hide ? bldg.features.filter(x => x.properties.st === 'on' && emdOk.has(x.properties.g)) : [] });
-  map.getSource('p').setData({ type: 'FeatureCollection', features: view.map(g => ({ type: 'Feature', geometry: { type: 'Point', coordinates: g.c }, properties: { g: g.id } })) });
+  map.getSource('p').setData({ type: 'FeatureCollection', features: view.map(g => ({ type: 'Feature', geometry: { type: 'Point', coordinates: g.c }, properties: { g: g.id, st: g.st === 'on' ? 'on' : 'none' } })) });
   map.getSource('sel').setData(selected && byGroup.has(selected.id) ? { type: 'FeatureCollection', features: byGroup.get(selected.id) } : EMPTY);
   const sat = base === 'sat';
   map.setPaintProperty('b-fill', 'fill-opacity', selected ? (sat ? 0.08 : 0.14) : (sat ? 0.22 : 0.4));   // 선택한 곳이 있으면 나머지는 흐리게
@@ -110,7 +110,7 @@ function drawMap() {
 // ===== 계산과 조건 =====
 // 추정 용량은 "후보 지붕"(기존 태양광이 올라간 동을 뺀 나머지 지붕)만으로 계산한다
 function calc(g) {
-  g._cap = g.a * f.util * f.kw;                              // kW
+  g._cap = (f.sol === 'all' ? g.at : g.a) * f.util * f.kw;   // kW. '전체'면 기존 태양광 동까지 지붕 전체로, '제외'면 남은 지붕만
   g._cf = meta.cf ? meta.cf.pct / 100 : null;                // 이용률(전력거래소 시도 실적)
   g._gen = g._cf ? g._cap * g._cf * 8760 / 1000 : null;      // 연간 발전량 MWh
 }
@@ -146,7 +146,7 @@ function drawList() {
   $('list').innerHTML = view.slice(0, LIST_MAX).map((g, i) => `
     <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : ''}${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="rk">${i + 1}</span>
-      <span class="nm">${esc(gname(g))}</span>
+      <span class="nm">${esc(gname(g))}${f.sol === 'all' && g.st !== 'none' ? '<span class="tag on">기존 태양광</span>' : ''}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
       <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
@@ -177,8 +177,8 @@ function card(g) {
     <div class="ad">${esc(short(g.ad))}</div>
     <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
     <dl>
-      <dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>
-      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동 제외<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
+      ${f.sol === 'all' ? `<dt>지붕</dt><dd>${num(g.at)}㎡ · ${g.nt}동</dd>` : `<dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>`}
+      <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동${f.sol === 'all' ? '' : ' 제외'}<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
       <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
       <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
       <dt>대표번호</dt>${tel ? `<dd>${tel}</dd>` : '<dd class="off">미확인</dd>'}
