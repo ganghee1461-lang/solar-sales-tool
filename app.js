@@ -178,21 +178,40 @@ $('list').addEventListener('click', e => {
 });
 
 // ===== 선택과 팝업 =====
+let foldOpen = false;   // 팝업 '상세'를 펼쳐 두었는지(회사를 바꿔도 유지)
+const mw = kw => num(kw / 1000, 1) + 'MW';
 function card(g) {
   const c = meta.cf, tip = c ? `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})` : '';
   // 대표번호는 누르면 걸리지 않게 글자로만 두고, 마우스를 올리거나 누르면 출처가 뜬다
   const telSrc = `출처: 전국공장등록현황(2026년 6월 말 기준) · 등록 회사 ${g.telnm || gname(g)}`;
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
-  const F = facOf(g), row = (k, v, sub, attr) => v ? `<dt>${k}</dt><dd>${v}${sub ? `<small${attr || ''}>${sub}</small>` : ''}</dd>` : '';
-  const pr = F && F.pr || '', PR = 40;   // 생산품은 40자에서 자르고 누르면 전체
-  const free = F && F.land > g.at ? F.land - g.at : 0;   // 부지에서 건물 지붕을 뺀 면적(대략)
-  const fac = F ? row('업종', esc((F.up || '').replace(/ 외 (\d+) ?종/, ' 외\u00a0$1종')), esc(pr.length > PR ? pr.slice(0, PR).trim() + '…' : pr), pr.length > PR ? ` class="pr" data-full="${esc(pr)}" data-short="${esc(pr.slice(0, PR).trim() + '…')}"` : '')
-      + row('규모', esc([F.sz, F.emp ? num(F.emp) + '명' : ''].filter(Boolean).join(' · ')), g.fn ? `등록 공장 ${g.fn}곳` : '')
-      + row('소유', esc(g.own || ''))
-      + row('입지', esc(F.dan || F.ip || ''), esc(F.zone || ''))
-      + row('부지', F.land ? num(F.land) + '㎡' : '', esc([free ? `건물 외 약 ${num(free)}㎡` : '', F.jm || ''].filter(Boolean).join(' · ')))
-      + row('등록', F.yr ? F.yr + '년' : '')
-    : facReady(g) ? '<dt>공장등록</dt><dd class="off">미확인</dd>' : '<dt>업종</dt><dd class="off">불러오는 중…</dd>';
+  const F = facOf(g) || {}, ready = facReady(g), B = F.b, K = F.kb && facCache.get(g.rc)._k[F.kb];
+  const row = (k, v, sub, attr) => v ? `<dt>${k}</dt><dd>${v}${sub ? `<small${attr || ''}>${sub}</small>` : ''}</dd>` : '';
+  const tipBtn = (t, label) => `<button class="tip" data-tip="${esc(t)}" aria-label="${label}">i</button>`;
+  // 계통 여유: 변전소·주변압기·선로 여유 중 가장 작은 값이 그 선로에 실제로 붙일 수 있는 양
+  let grid = '', lines = '';
+  if (K) {
+    const L = K.l.map(r => ({ s: r[0], dl: r[2], v: Math.max(0, Math.min(r[3], r[4], r[5])) })).sort((x, y) => y.v - x.v);
+    const mx = L[0].v, ok = L.filter(x => x.v > 0).length, subs = [...new Set(L.map(x => x.s))].join(', ');
+    const src = `출처: 한전 분산전원 연계정보(${K.d} 조회) · 이 리(동)를 지나는 선로 기준이라 실제 연결 선로는 한전 확인 필요 · 변전소, 주변압기, 선로 여유 중 가장 작은 값`;
+    grid = `<dt>계통 여유</dt><dd${mx > 0 ? '' : ' class="red"'}>${mx > 0 ? '최대 ' + mw(mx) : '없음'}${tipBtn(src, '계통 출처')}<small>${esc(subs)} 변전소<br>선로 ${L.length}개 중 ${ok}개 여유</small></dd>`;
+    lines = row('선로별', L.slice(0, 6).map(x => `${esc(x.dl)} ${x.v > 0 ? mw(x.v) : '없음'}`).join('<br>') + (L.length > 6 ? `<br>외 ${L.length - 6}개` : ''));
+  }
+  const bld = B ? `<dt>건물</dt><dd>${esc([B.y ? B.y + '년' : '', B.st || ''].filter(Boolean).join(' · ') || '-')}<small>${B.rf ? `<span>지붕 ${esc(B.rf)}</span>` : ''}${B.sl ? `${B.rf ? '<br>' : ''}<span class="red">슬레이트 ${B.sl}동</span>` : ''}</small></dd>` : '';
+  const pr = F.pr || '', PR = 40;   // 생산품은 40자에서 자르고 누르면 전체
+  const free = F.land > g.at ? F.land - g.at : 0;   // 부지에서 건물 지붕을 뺀 면적(대략)
+  const reg = F.up || F.sz || F.ip;   // 공장등록과 맞은 회사인지
+  const core = (ready ? grid + bld : '<dt>계통 여유</dt><dd class="off">불러오는 중…</dd>')
+    + row('소유', esc(g.own || ''))
+    + row('업종', esc((F.up || '').replace(/ 외 (\d+) ?종/, ' 외 $1종')), esc([F.sz, F.emp ? num(F.emp) + '명' : ''].filter(Boolean).join(' · ')));
+  const more = `<dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? tipBtn(tip, '이용률 출처') : ''}</dd>`
+    + lines
+    + (B && B.n ? row('건축물대장', `${B.n}동${B.y0 ? ' · ' + (B.y0 === B.y1 ? B.y0 : B.y0 + '~' + B.y1) + '년' : ''}`, '건물 칸은 가장 큰 동') : '')
+    + row('생산품', esc(pr.length > PR ? '' : pr)) + (pr.length > PR ? `<dt>생산품</dt><dd><small class="pr" data-full="${esc(pr)}" data-short="${esc(pr.slice(0, PR).trim() + '…')}">${esc(pr.slice(0, PR).trim() + '…')}</small></dd>` : '')
+    + row('입지', esc(F.dan || F.ip || ''), esc(F.zone || ''))
+    + row('부지', F.land ? num(F.land) + '㎡' : '', esc([free ? `건물 외 약 ${num(free)}㎡` : '', F.jm || ''].filter(Boolean).join(' · ')))
+    + row('공장등록', reg ? esc([F.yr ? F.yr + '년' : '', g.fn ? `${g.fn}곳` : ''].filter(Boolean).join(' · ') || '있음') : '', esc(g.telnm || ''))
+    + (ready && !reg ? '<dt>공장등록</dt><dd class="off">미확인</dd>' : '');
   return `<div class="head">
       <h2>${esc(gname(g))}</h2>
       <div class="ad">${esc(short(g.ad))}</div>
@@ -205,13 +224,16 @@ function card(g) {
       <dl>
         ${f.sol === 'all' ? `<dt>지붕</dt><dd>${num(g.at)}㎡ · ${g.nt}동</dd>` : `<dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>`}
         <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동${f.sol === 'all' ? '' : ' 제외'}<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
-        <dt>이용률</dt><dd>${g._cf ? num(g._cf * 100, 1) + '%' : '-'}${tip ? `<button class="tip" data-tip="${esc(tip)}" aria-label="이용률 출처">i</button>` : ''}</dd>
         <dt>연 발전량</dt><dd>${g._gen ? num(g._gen) + ' MWh' : '-'}</dd>
+        ${core}
       </dl>
-      <div class="sec">공장${g.telnm ? `<span>${esc(g.telnm)}</span>` : ''}</div>
-      <dl>${fac}</dl>
+      <details class="fold"${foldOpen ? ' open' : ''}><summary>상세</summary><dl>${more}</dl></details>
     </div>`;
 }
+document.addEventListener('toggle', e => {   // 상세를 펼친 상태를 기억하고, 끝 흐림을 다시 맞춘다
+  const d = e.target; if (!d.classList || !d.classList.contains('fold')) return;
+  foldOpen = d.open; const b = d.closest('.body'); if (b && b.onscroll) b.onscroll();
+}, true);
 // 팝업을 다시 그릴 때 보던 스크롤 위치를 지킨다. 아래에 더 있으면 끝을 흐리게
 function showCard(g) {
   if (!popup) return;

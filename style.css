@@ -132,8 +132,13 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
 .card dd small.pr{cursor:pointer}
 .card dd.off{font-weight:400;color:var(--ink-3)}
 .card dd.red{color:var(--red-ink)}
-.card .sec{display:flex;align-items:baseline;gap:6px;margin-top:8px;padding:10px 0 2px;border-top:1px solid var(--line-2);font-size:var(--fs-sm);font-weight:600;color:var(--ink-2)}
-.card .sec span{min-width:0;font-weight:400;color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card dd .red{color:var(--red-ink);font-weight:600}
+.card dd small span{display:inline-block}
+.card .fold{margin-top:6px;border-top:1px solid var(--line-2)}
+.card .fold summary{display:flex;align-items:center;height:32px;list-style:none;cursor:pointer;font-size:var(--fs-sm);font-weight:600;color:var(--ink-2)}
+.card .fold summary::-webkit-details-marker{display:none}
+.card .fold summary::after{content:"";width:12px;height:12px;margin-left:auto;background:var(--chev) no-repeat center/12px;transition:transform .15s}
+.card .fold[open] summary::after{transform:rotate(180deg)}
 .card .body .tip:hover::after,.card .body .tip:focus::after{top:calc(100% + 6px);bottom:auto}
 
 /* 출처 말풍선(이용률 i, 대표번호) */
@@ -160,6 +165,7 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
   .tip{width:22px;height:22px}
   .card .maplibregl-popup-close-button{width:32px;height:32px;top:6px;right:6px}
   .card .maplibregl-popup-content{max-height:56dvh;width:272px}
+  .card .fold summary{height:40px}
   #list li{padding:10px 12px}
   main{height:100dvh;flex:none;width:100%}
   #legend{display:none}

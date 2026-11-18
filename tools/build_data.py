@@ -222,6 +222,39 @@ def prepare():
     cf = json.load(open(os.path.join(GIS, '태양광이용률-전력거래소/연도별_태양광이용률.json'), encoding='utf-8'))['값']
     return {'J': J, 'regs': regs, 'pts': pts, 'grid': grid, 'noxy': noxy, 'jmap': jmap, 'cf': cf, 'sdate': sdate.most_common(1)[0][0]}
 
+# ---------- 부가정보(건축물대장, 계통 여유): tools/fetch_extra.py 가 받아 둔 것을 읽는다 ----------
+EXTRA = os.path.join(GIS, '부가정보')
+RE_SLATE = re.compile(r'슬레이트|스레트|슬레트|스레이트')
+def load_jibun(code):
+    p = os.path.join(EXTRA, '지번', code + '.json')
+    return {tuple(json.loads(k)): v for k, v in json.load(open(p, encoding='utf-8')).items()} if os.path.exists(p) else {}
+def extra_of(bs, jb, grids):
+    """건물 묶음 -> (건축물대장 요약, 계통 조회 법정동코드). 큰 건물부터 3동의 지번을 본다(받을 때와 같은 기준)"""
+    js = [jb[b['rk']] for b in sorted((b for b in bs if 'rk' in b), key=lambda b: -round(b['area_m2']))[:3] if b['rk'] in jb]
+    if not js: return None, None
+    items = []
+    for lot in dict.fromkeys((j[0], j[1], j[2], j[3]) for j in js):
+        p = os.path.join(EXTRA, '건축물대장', lot[0][:5], '%s_%d_%d_%d.json' % lot)
+        if os.path.exists(p): items += json.load(open(p, encoding='utf-8'))
+    fw = [i for i in items if i.get('mainPurpsCdNm') in ('공장', '창고시설')] or items      # 공장·창고 동이 있으면 그것만
+    b = None
+    if fw:
+        yr = lambda i: (str(i.get('useAprDay') or '').strip()[:4])
+        main = max(fw, key=lambda i: float(i.get('archArea') or 0)); ys = sorted(y for y in map(yr, fw) if len(y) == 4 and y.isdigit())
+        b = {'y': yr(main) if yr(main).isdigit() else '', 'y0': ys[0] if ys else '', 'y1': ys[-1] if ys else '', 'st': (main.get('strctCdNm') or '').strip(),
+             'rf': (main.get('etcRoof') or '').strip() or (main.get('roofCdNm') or '').strip(), 'n': len(fw),
+             'sl': sum(1 for i in fw if RE_SLATE.search((i.get('roofCdNm') or '') + (i.get('etcRoof') or '')))}
+        b = {k: v for k, v in b.items() if v}
+    kb = js[0][0]
+    if kb not in grids:
+        p = os.path.join(EXTRA, '계통', kb + '.json'); g = None
+        if os.path.exists(p):
+            d = json.load(open(p, encoding='utf-8')); u = {}
+            for r in d['rows']: u[(r['substNm'], r['mtrNo'], r['dlNm'])] = [r['substNm'], str(r['mtrNo']), r['dlNm'], int(r['vol1']), int(r['vol2']), int(r['vol3'])]
+            if u: g = {'d': d['day'], 'l': list(u.values())}      # l = [변전소, 주변압기 번호, 선로, 변전소 여유, 주변압기 여유, 선로 여유(kW)]
+        grids[kb] = g
+    return b, kb if grids[kb] else None
+
 MISS = collections.Counter()
 P = None   # 준비한 자료 (작업 프로세스들이 함께 본다)
 
@@ -331,7 +364,7 @@ def build(arg):
     # 4) 쓰기
     cfk = KPX.get(old[:2]); cv = P['cf'].get(cfk, {}); ys = sorted(cv)[-CF_YEARS:]; vals = [float(cv[y]) for y in ys]
     cf = {'pct': round(sum(vals) / len(vals), 2), 'years': ys, 'vals': vals, 'area': cfk} if vals else None
-    G = []
+    G = []; jb = load_jibun(code); grids = {}
     for gid, (k, m) in enumerate(groups):
         bs = [cand[i] for i in m]; big = max(bs, key=lambda b: b['area_m2']); a = big['attrs']; lon, lat = to_ll(*big['c'])
         emd, ri = J['bjd'].get(a['BJCD'], ('', ''))
@@ -355,12 +388,18 @@ def build(arg):
             g['f'] = top['f']                                     # 공장 정보(업종·규모·입지 등)
             if len(rr) > 1: g['fn'] = len(rr)                     # 이 건물 묶음에 등록된 공장 수
             if mapnm and not same_name(mapnm, top['nm']): g['telnm'] = top['nm']     # 번호 주인이 지도 표기와 다를 때만
+        xb, xk = extra_of(bs, jb, grids)
+        if xb or xk:
+            g.setdefault('f', {}); g['f'] = dict(g['f'])
+            if xb: g['f']['b'] = xb
+            if xk: g['f']['kb'] = xk
         G.append(g)
     feats = [{'type': 'Feature', 'geometry': {'type': 'Polygon', 'coordinates': [[list(to_ll(x, y)) for x, y in r] for r in b['rings']]},
               'properties': {'g': b['gid'], 'st': 'on' if (b.get('sol') or b.get('ph')) else 'none'}} for b in gb]
     od = os.path.join(OUT, code); os.makedirs(od, exist_ok=True)
     def dump(name, obj): json.dump(obj, open(os.path.join(od, name), 'w', encoding='utf-8'), ensure_ascii=False, separators=(',', ':'))
     fac = {g['id']: g.pop('f') for g in G if 'f' in g}
+    if any(grids.values()): fac['_k'] = {k: v for k, v in grids.items() if v}      # 계통 여유는 리마다 한 번만 싣는다
     dump('info.json', {'meta': {'code': code, 'sido': sido, 'name': sgname, 'cf': cf, 'solar_date': P['sdate']}, 'groups': G})
     dump('fac.json', fac)
     dump('bldg.geojson', {'type': 'FeatureCollection', 'features': feats})
