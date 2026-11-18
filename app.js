@@ -16,14 +16,25 @@ const $ = id => document.getElementById(id);
 const num = (v, d = 0) => Number(v).toLocaleString('ko-KR', { maximumFractionDigits: d, minimumFractionDigits: d });
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const gname = g => g.nm || '이름 없음';
+const SIDO_S = { 서울특별시: '서울', 부산광역시: '부산', 대구광역시: '대구', 인천광역시: '인천', 대전광역시: '대전', 울산광역시: '울산', 세종특별자치시: '세종', 경기도: '경기', 강원특별자치도: '강원', 충청북도: '충북', 충청남도: '충남', 전북특별자치도: '전북', 전남광주통합특별시: '전남광주', 경상북도: '경북', 경상남도: '경남', 제주특별자치도: '제주' };
+const sshort = s => SIDO_S[s] || s;   // 광역 줄임 이름(선택칸·검색 결과용)
 // 주소에서 지금 보는 지역 이름을 뗀다(도 전체를 볼 때는 도 이름만, 시군구를 볼 때는 시군구까지)
-const short = a => { const p = region ? (region.all || region.name === region.sido ? region.sido : region.sido + ' ' + region.name) + ' ' : ''; return (a + ' ').startsWith(p) ? a.slice(p.length) : a; };
+const short = a => { const p = region ? (region.all || region.name === region.sido ? region.sido : region.sido + ' ' + region.name) + ' ' : ''; const s = (a + ' ').startsWith(p) ? a.slice(p.length).trim() : a; return s || a; };
 const idmap = new Map();   // '시군구코드:번호' -> 묶음 (검색 결과에서 찾아가기용)
 const mobile = () => innerWidth <= 760;
 const lc = s => String(s || '').toLowerCase();
 const hitQ = g => !f.q || lc(g.nm).includes(f.q) || lc(g.ad).includes(f.q);   // 검색어가 회사명·주소에 있는지
 // 지도를 맞출 때 여백: 폰에서 아래 패널이 올라와 있으면 그 높이만큼 비운다
-const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 56, left: 16, right: 16, bottom: Math.min($('side').offsetHeight + 8, $('map').offsetHeight * 0.42) } : 40;
+const pad = () => mobile() && !$('side').classList.contains('hide') ? { top: 56, left: 16, right: 16, bottom: $('side').offsetHeight + 8 } : 40;
+// 지역 범위에 지도를 맞춘다. 더 축소할 수 없는 단계에 걸리면(폰 전국처럼) 범위 가운데를 보이는 칸 가운데에 둔다
+function fitBox(b, duration = 0) {
+  const p = pad(), P = typeof p === 'number' ? { top: p, bottom: p, left: p, right: p } : p;
+  const cam = map.cameraForBounds([[b[0], b[1]], [b[2], b[3]]], { padding: P });
+  if (cam && cam.zoom >= map.getMinZoom()) return map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: P, duration });
+  const c = region && region.nation ? [127.8, 36.3] : [(b[0] + b[2]) / 2, (b[1] + b[3]) / 2];   // 전국은 제주를 뺀 본토 가운데(서울~부산이 보이게)
+  map.jumpTo({ center: c, zoom: map.getMinZoom() });
+  map.panBy([(P.right - P.left) / 2, (P.bottom - P.top) / 2], { duration: 0 });
+}
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 // 받기: 실패하면 두 번 더 시도한다(폰 통신이 끊길 때 대비)
 async function getJson(u) {
@@ -57,8 +68,8 @@ const map = new maplibregl.Map({ container: 'map', style: style('base'), center:
 map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
 
 // 색은 두 가지뿐: 후보(청록), 기존 태양광(빨강)
-const COLOR = ['match', ['get', 'st'], 'on', '#d92d20', '#0b7a6b'];
-const LINE = ['match', ['get', 'st'], 'on', '#7a271a', '#04443b'];
+const COLOR = ['match', ['get', 'st'], 'on', '#d13b31', '#0f766e'];   // style.css 의 --red, --pri 와 같은 값
+const LINE = ['match', ['get', 'st'], 'on', '#7a271a', '#064e48'];
 const LINE_SAT = ['match', ['get', 'st'], 'on', '#ff6b5e', '#19f0c8'];   // 항공사진용 밝은 색
 const EMPTY = { type: 'FeatureCollection', features: [] };
 const W = (a, b, c) => ['interpolate', ['linear'], ['zoom'], 10, a, 14, b, 17, c];
@@ -72,18 +83,18 @@ function addLayers() {
   map.addLayer({ id: 'b-line', type: 'line', source: 'b', layout: { 'line-join': 'round' }, paint: { 'line-color': sat ? LINE_SAT : LINE, 'line-width': W(0.6, sat ? 2 : 1.6, sat ? 3 : 2.4) } });
   // 기존 태양광이라 후보에서 빠진 동: 목록·합계에는 없고 지도에만 흐린 점선으로 남긴다
   map.addSource('x', { type: 'geojson', data: EMPTY });
-  map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': '#d92d20', 'fill-opacity': 0.1 } });
+  map.addLayer({ id: 'x-fill', type: 'fill', source: 'x', paint: { 'fill-color': '#d13b31', 'fill-opacity': 0.1 } });
   map.addLayer({ id: 'x-line', type: 'line', source: 'x', layout: { 'line-join': 'round' },
-    paint: { 'line-color': sat ? '#ff6b5e' : '#d92d20', 'line-opacity': 0.8, 'line-dasharray': [3, 2], 'line-width': W(0.5, 1.3, 2) } });
+    paint: { 'line-color': sat ? '#ff6b5e' : '#d13b31', 'line-opacity': 0.8, 'line-dasharray': [3, 2], 'line-width': W(0.5, 1.3, 2) } });
   // 회사 위치 점: 광역 전체처럼 건물 도형을 아직 안 받았거나 넓게 볼 때(확대 11 미만)
   map.addSource('p', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'p-dot', type: 'circle', source: 'p', maxzoom: 12,
-    paint: { 'circle-color': COLOR, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 4.5], 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.6, 'circle-opacity': 0.9 } });
+    paint: { 'circle-color': COLOR, 'circle-radius': ['interpolate', ['linear'], ['zoom'], 6, 1.8, 11, 4.5], 'circle-stroke-color': '#fff', 'circle-stroke-width': 0.8, 'circle-opacity': 0.9 } });
   // 선택한 곳: 진한 채움 + 노란 굵은 테두리
   map.addSource('sel', { type: 'geojson', data: EMPTY });
   map.addLayer({ id: 'sel-fill', type: 'fill', source: 'sel', paint: { 'fill-color': COLOR, 'fill-opacity': sat ? 0.35 : 0.85 } });
   map.addLayer({ id: 'sel-halo', type: 'line', source: 'sel', layout: { 'line-join': 'round' }, paint: { 'line-color': '#fdb022', 'line-width': 5 } });
-  map.addLayer({ id: 'sel-line', type: 'line', source: 'sel', layout: { 'line-join': 'round' }, paint: { 'line-color': '#101828', 'line-width': 1.2 } });
+  map.addLayer({ id: 'sel-line', type: 'line', source: 'sel', layout: { 'line-join': 'round' }, paint: { 'line-color': '#111827', 'line-width': 1.2 } });
   drawMap();
 }
 map.on('load', addLayers);
@@ -120,11 +131,10 @@ function apply() {
   $('basisNow').textContent = `${num(f.minC)}kW 이상 · ${Math.round(f.util * 100)}% · ${f.kw.toFixed(2)}kW/㎡`;
   if (region && region.nation) {
     view = []; const rows = sidoRows();
-    $('list').innerHTML = rows.map((r, i) => `
+    $('list').innerHTML = rows.map(r => `
       <li data-sido="${esc('S:' + r.s)}" class="sido">
-        <span class="rk">${i + 1}</span><span class="nm">${esc(r.s)}</span><span class="cap">${num(r.n)}<small>곳</small></span>
+        <span class="nm">${esc(sshort(r.s))}</span><span class="cap">${num(r.n)}<small>곳</small></span>
         <span class="ad">시군구 ${r.k}곳</span>
-        <span class="bar"><i style="width:${Math.max(2, r.n / rows[0].n * 100).toFixed(1)}%"></i></span>
       </li>`).join('');
     drawMap(); return;
   }
@@ -139,24 +149,20 @@ function apply() {
   if (selected && popup) popup.setHTML(card(selected));   // 기준을 바꾸면 팝업 숫자도 바로 바뀜
 }
 function drawList() {
-  const max = view.length ? view[0]._cap : 1;
   // 검색 중이면 조건(용량 기준 등) 때문에 빠진 회사도 아래에 흐리게 보여준다
   const shown = new Set(view.map(g => g.id));
   const outs = f.q ? groups.filter(g => !shown.has(g.id) && (!f.emd || g.sub === f.emd) && hitQ(g)).sort((a, b) => b.a - a.a).slice(0, 30) : [];
-  $('list').innerHTML = view.slice(0, LIST_MAX).map((g, i) => `
-    <li data-id="${g.id}" class="${g.st === 'on' ? 'on' : ''}${selected && selected.id === g.id ? ' sel' : ''}">
-      <span class="rk">${i + 1}</span>
+  $('list').innerHTML = view.slice(0, LIST_MAX).map(g => `
+    <li data-id="${g.id}"${selected && selected.id === g.id ? ' class="sel"' : ''}>
       <span class="nm">${esc(gname(g))}${f.sol === 'all' && g.st !== 'none' ? '<span class="tag on">기존 태양광</span>' : ''}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
-      <span class="bar"><i style="width:${Math.max(2, g._cap / max * 100).toFixed(1)}%"></i></span>
     </li>`).join('')
     + (view.length > LIST_MAX ? `<li class="msg">${LIST_MAX} / ${num(view.length)}곳</li>` : '')
     + (view.length ? '' : '<li class="msg">결과 없음</li>')
     + (outs.length ? '<li class="msg sub">조건 밖</li>' + outs.map(g => `
     <li data-id="${g.id}" class="out${selected && selected.id === g.id ? ' sel' : ''}">
-      <span class="rk">-</span>
-      <span class="nm">${esc(gname(g))}<span class="tag">${g.st === 'on' ? '기존 태양광' : '조건 밖'}</span></span>
+      <span class="nm">${esc(gname(g))}${g.st === 'on' ? '<span class="tag on">기존 태양광</span>' : ''}</span>
       <span class="cap">${num(g._cap)}<small>kW</small></span>
       <span class="ad">${esc(short(g.ad))}</span>
     </li>`).join('') : '');
@@ -175,7 +181,7 @@ function card(g) {
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
   return `<h2>${esc(gname(g))}</h2>
     <div class="ad">${esc(short(g.ad))}</div>
-    <div class="cap"><b>${num(g._cap)}</b><small>kW</small><span>추정 용량</span></div>
+    <div class="cap"><span>추정 용량</span><b>${num(g._cap)}</b><small>kW</small></div>
     <dl>
       ${f.sol === 'all' ? `<dt>지붕</dt><dd>${num(g.at)}㎡ · ${g.nt}동</dd>` : `<dt>후보 지붕</dt><dd>${num(g.a)}㎡ · ${g.n}동</dd>`}
       <dt>기존 태양광</dt>${ex ? `<dd class="red">${num(g.at - g.a)}㎡ · ${ex}동${f.sol === 'all' ? '' : ' 제외'}<small>${[g.sn ? `판매용(등록) ${g.sn}건 · ${num(g.skw)}kW` : '', g.pn ? `사진 판독 ${g.pn}동` : ''].filter(Boolean).join('<br>')}</small></dd>` : '<dd class="off">없음</dd>'}
@@ -195,7 +201,7 @@ async function select(g) {
   const b = bounds(g), m = mobile();
   if (m) $('side').classList.add('hide');
   // 팝업은 건물 바로 옆(PC는 오른쪽, 폰은 아래)에 붙인다
-  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 70, bottom: 300, left: 30, right: 30 } : { top: 70, bottom: 70, left: 70, right: 400 }, maxZoom: 17.5, duration: 500 });
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 64, bottom: Math.min(380, $('map').offsetHeight * 0.55), left: 24, right: 24 } : { top: 70, bottom: 70, left: 70, right: 400 }, maxZoom: 17.5, duration: 500 });
   if (popup) { popup.off('close', onPopupClose); popup.remove(); }
   popup = new maplibregl.Popup({ className: 'card', closeOnClick: false, focusAfterOpen: false, maxWidth: 'none', anchor: m ? 'top' : 'left', offset: 12 })
     .setLngLat(m ? [(b[0] + b[2]) / 2, b[1]] : [b[2], (b[1] + b[3]) / 2]).setHTML(card(g)).addTo(map);
@@ -239,7 +245,7 @@ map.on('moveend', geomInView);
 // 광역 · 시군구 · 읍면동 세 칸을 지금 범위에 맞게 채운다. 각 칸 맨 위는 '전체'
 function fillScope() {
   const sido = region.nation ? '' : region.sido, sggs = sido ? regions.filter(r => r.sido === sido) : [], single = sggs.length === 1;
-  $('sido').innerHTML = '<option value="ALL">전국 전체</option>' + [...new Set(regions.map(r => r.sido))].map(s => `<option value="${esc('S:' + s)}">${esc(s)}</option>`).join('');
+  $('sido').innerHTML = '<option value="ALL">전국</option>' + [...new Set(regions.map(r => r.sido))].map(s => `<option value="${esc('S:' + s)}">${esc(sshort(s))}</option>`).join('');
   $('sido').value = sido ? 'S:' + sido : 'ALL';
   $('sgg').innerHTML = !sido ? '<option value="">시군구 전체</option>'
     : single ? `<option value="${sggs[0].code}">시군구 전체</option>`
@@ -259,12 +265,13 @@ function resetSearch() { $('q').value = ''; $('hits').hidden = true; f.q = ''; }
 function loadNation() {
   loadSeq++; parts = []; partOff = new Map(); geomDone = new Set();
   clearSelection(); resetSearch();
+  document.body.classList.add('nation');
   region = { code: 'ALL', nation: true, name: '전국', sido: '', bbox: regions.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) };
   meta = {}; groups = []; byGroup.clear(); idmap.clear(); bldg = { type: 'FeatureCollection', features: [] }; f.emd = '';
   fillScope();
   history.replaceState(null, '', '#ALL'); store.set('roofpv_region', 'ALL');
   apply();
-  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 0 });
+  fitBox(region.bbox);
 }
 async function loadRegion(code) {
   code = decodeURIComponent(code || '');
@@ -280,12 +287,12 @@ async function loadRegion(code) {
   try { data = await pool(ps, r => fetchInfo(r.code)); }
   catch (e) {
     if (seq !== loadSeq) return;
-    $('list').innerHTML = `<li class="msg">불러오지 못했습니다<br><button class="retry" type="button">다시 시도</button></li>`;
+    $('list').innerHTML = `<li class="msg">불러오지 못했습니다<br><button class="btn retry" type="button">다시 시도</button></li>`;
     $('list').querySelector('.retry').onclick = () => loadRegion(code);
     return;
   }
   if (seq !== loadSeq) return;   // 기다리는 사이 다른 지역을 눌렀으면 버린다
-  clearSelection();
+  clearSelection(); document.body.classList.remove('nation');
   const all = !!sidoOf;
   region = all ? { code: 'S:' + sidoOf, sido: sidoOf, name: sidoOf, all: true, bbox: ps.reduce((b, r) => [Math.min(b[0], r.bbox[0]), Math.min(b[1], r.bbox[1]), Math.max(b[2], r.bbox[2]), Math.max(b[3], r.bbox[3])], [999, 999, -999, -999]) } : ps[0];
   parts = ps; partOff = new Map(); geomDone = new Set();
@@ -299,7 +306,7 @@ async function loadRegion(code) {
   fillScope();
   history.replaceState(null, '', '#' + encodeURIComponent(region.code)); store.set('roofpv_region', region.code);
   apply();
-  map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 0 });
+  fitBox(region.bbox);
   if (!all) ensureGeom(ps[0].code).catch(() => {}); else geomInView();
 }
 
@@ -322,33 +329,33 @@ function search() {
   const q = $('q').value.trim().toLowerCase(), box = $('hits');
   const byRank = (s, r, k) => [...s.sort((a, b) => k(b) - k(a)), ...r.sort((a, b) => k(b) - k(a))];
   const nation = region.nation;
-  if (!nation && f.q !== q) { f.q = q; apply(); }
+  if (!nation && f.q !== q) { f.q = q; apply(); if (q && view.length && view.length <= 3) fitGroups(view); }   // 결과가 몇 곳 안 되면 지도를 그쪽으로
   if (q.length < 2) { box.hidden = true; hits = []; return; }
   if (nation) {
     loadIndex();
-    const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? r.sido : r.sido.replace(/특별자치도|특별자치시|광역시|특별시|통합특별시/, '') + ' ' + r.name) : ''; };
-    hits = [...new Set(regions.map(r => r.sido))].filter(x => lc(x).includes(q)).slice(0, 2).map(x => ({ type: 'region', r: { code: 'S:' + x, name: x, sido: '광역 이동', n: regions.filter(r => r.sido === x).reduce((a, r) => a + r.n, 0) } }))
-      .concat(regions.filter(r => r.name !== r.sido && lc(r.sido + ' ' + r.name).includes(q)).slice(0, 3).map(r => ({ type: 'region', r })));
+    const rname = c => { const r = regions.find(x => x.code === c); return r ? (r.name === r.sido ? sshort(r.sido) : sshort(r.sido) + ' ' + r.name) : ''; };
+    hits = [...new Set(regions.map(r => r.sido))].filter(x => lc(x).includes(q) || lc(sshort(x)).includes(q)).slice(0, 2).map(x => ({ type: 'region', r: { code: 'S:' + x, name: x, sido: '광역', n: regions.filter(r => r.sido === x).reduce((a, r) => a + r.n, 0) } }))
+      .concat(regions.filter(r => r.name !== r.sido && lc(r.sido + ' ' + sshort(r.sido) + ' ' + r.name).includes(q)).sort((a, b) => b.n - a.n).slice(0, 5).map(r => ({ type: 'region', r })));
     const starts = [], rest = [];
     for (const row of index) { const n = lc(row[0]); if (n.startsWith(q)) starts.push(row); else if (n.includes(q) || lc(row[1]).includes(q)) rest.push(row); }
     hits = hits.concat(byRank(starts, rest, r => r[4]).slice(0, HIT_MAX).map(row => ({ type: 'co', row, sub: rname(row[2]) + ' ' + row[1] })));
   } else {
     // 범위 안의 하위 지역: 광역 전체면 시군구, 시군구면 읍면동
     hits = region.all
-      ? regions.filter(r => r.sido === region.sido && lc(r.name).includes(q)).slice(0, 3).map(r => ({ type: 'region', r }))
-      : [...new Set(groups.map(g => g.sub))].filter(e => e && e !== f.emd && lc(e).includes(q)).slice(0, 3).map(e => ({ type: 'emd', e, n: groups.filter(g => g.sub === e).length }));
+      ? regions.filter(r => r.sido === region.sido && lc(r.name).includes(q)).sort((a, b) => b.n - a.n).slice(0, 5).map(r => ({ type: 'region', r }))
+      : [...new Set(groups.map(g => g.sub))].filter(e => e && e !== f.emd && lc(e).includes(q)).map(e => ({ type: 'emd', e, n: groups.filter(g => g.sub === e).length })).sort((a, b) => b.n - a.n).slice(0, 5);
     if (!hits.length) { box.hidden = true; return; }   // 회사는 아래 목록에서 바로 보이므로 드롭다운을 띄우지 않는다
   }
   act = 0;
   const row = (h, i) => {
     const c = i ? '' : 'act';
-    if (h.type === 'region') return `<li data-i="${i}" class="${c}"><b>${esc(h.r.name)}</b><em>${num(h.r.n)}곳</em><small>${esc(h.r.sido)}</small></li>`;
+    if (h.type === 'region') return `<li data-i="${i}" class="${c}"><b>${esc(h.r.name)}</b><em>${num(h.r.n)}곳</em><small>${esc(sshort(h.r.sido))}</small></li>`;
     if (h.type === 'emd') return `<li data-i="${i}" class="${c}"><b>${esc(h.e)}</b><em>${num(h.n)}곳</em><small>${esc(region.name)}</small></li>`;
-    return `<li data-i="${i}" class="${c}"><b>${esc(h.row[0] || '이름 없음')}</b><em>${num(h.row[4])}㎡</em><small>${esc(h.sub)}</small></li>`;
+    return `<li data-i="${i}" class="${c}"><b>${esc(h.row[0] || '이름 없음')}</b><small>${esc(h.sub)}</small></li>`;
   };
   const wait = nation && !indexDone;
-  box.innerHTML = (hits.length ? hits.map(row).join('') : (wait ? '' : '<li class="no">전국에서 찾는 곳이 없습니다</li>'))
-    + (wait ? '<li class="no">전국 목록을 불러오는 중…</li>' : '');
+  box.innerHTML = (hits.length ? hits.map(row).join('') : (wait ? '' : '<li class="no">결과 없음</li>'))
+    + (wait ? '<li class="no">불러오는 중…</li>' : '');
   box.hidden = false;
 }
 async function pick(i) {
@@ -364,12 +371,13 @@ async function pick(i) {
 
 // ===== 조작 =====
 function bind() {
-  $('q').addEventListener('input', search);
+  let qt = 0;
+  $('q').addEventListener('input', () => { clearTimeout(qt); qt = setTimeout(search, 120); });   // 글자마다 다시 그리지 않고 입력이 멈추면 한 번
   $('q').addEventListener('focus', () => { if (region && region.nation) loadIndex(); search(); });
   $('q').addEventListener('keydown', e => {
     const lis = [...document.querySelectorAll('#hits li[data-i]')];
     if (e.key === 'Enter') {   // 제안이 떠 있으면 그걸, 아니면 목록 첫 회사를 고른다
-      e.preventDefault();
+      e.preventDefault(); clearTimeout(qt); search();
       if (!$('hits').hidden && hits.length) pick(act); else if (view.length) { $('q').blur(); select(view[0]); }
     }
     else if (e.key === 'Escape') { $('hits').hidden = true; }
@@ -384,10 +392,14 @@ function bind() {
   $('sgg').onchange = e => loadRegion(e.target.value);
   $('emd').onchange = e => {
     f.emd = e.target.value; resetSearch(); fillScope(); apply();
-    if (f.emd) fitGroups(groups.filter(g => g.sub === f.emd)); else map.fitBounds([[region.bbox[0], region.bbox[1]], [region.bbox[2], region.bbox[3]]], { padding: pad(), duration: 400 });
+    if (f.emd) fitGroups(groups.filter(g => g.sub === f.emd)); else fitBox(region.bbox, 400);
   };
-  $('solMode').onchange = e => { f.sol = e.target.value; apply(); };
-  const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); apply(); }; };
+  document.querySelectorAll('#solMode button').forEach(b => b.onclick = () => {
+    if (f.sol === b.dataset.v) return;
+    f.sol = b.dataset.v; document.querySelectorAll('#solMode button').forEach(x => x.classList.toggle('on', x === b)); apply();
+  });
+  let raf = 0; const later = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; apply(); }); };   // 끄는 동안 화면 갱신마다 한 번만 계산
+  const sl = (id, out, set, fmt) => { $(id).oninput = e => { set(+e.target.value); $(out).textContent = fmt(+e.target.value); later(); }; };
   sl('minC', 'vMinC', v => f.minC = v, v => num(v) + 'kW');
   sl('util', 'vUtil', v => f.util = v / 100, v => v + '%');
   sl('kw', 'vKw', v => f.kw = v / 100, v => (v / 100).toFixed(2) + 'kW');
@@ -396,7 +408,8 @@ function bind() {
     base = b.dataset.base; document.querySelectorAll('#basemap button').forEach(x => x.classList.toggle('on', x === b));
     map.setStyle(style(base)); map.once('styledata', () => setTimeout(addLayers, 0));
   });
-  $('toggleSide').onclick = () => $('side').classList.toggle('hide');
+  $('toggleSide').onclick = () => $('side').classList.remove('hide');
+  $('grip').onclick = () => $('side').classList.add('hide');
 }
 
 // ===== 시작 =====

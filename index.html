@@ -4,48 +4,46 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="format-detection" content="telephone=no">
-<title>지붕 태양광 후보</title>
+<title>지붕지도</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css" rel="stylesheet">
 <script defer src="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js"></script>
-<link rel="stylesheet" href="style.css?v=20261118j">
+<link rel="stylesheet" href="style.css?v=20261118p">
 </head>
 <body>
 <div id="app">
   <aside id="side">
-    <div id="grip" aria-hidden="true"></div>
+    <button id="grip" type="button" aria-label="목록 접기"></button>
     <header>
-      <div class="ttl">
-        <h1>지붕 태양광 후보</h1>
-      </div>
+      <h1>지붕지도</h1>
     </header>
 
     <div id="filters">
       <div id="scope">
-        <select id="sido" aria-label="광역"></select>
-        <select id="sgg" aria-label="시군구"></select>
-        <select id="emd" aria-label="읍면동"></select>
+        <select id="sido" class="field" aria-label="광역"></select>
+        <select id="sgg" class="field" aria-label="시군구"></select>
+        <select id="emd" class="field" aria-label="읍면동"></select>
       </div>
       <div id="find">
-        <input type="search" id="q" placeholder="검색" aria-label="검색" autocomplete="off">
+        <input type="search" id="q" class="field" placeholder="검색" aria-label="검색" autocomplete="off">
         <ul id="hits" hidden></ul>
       </div>
-      <div class="row1">
-        <select id="solMode" aria-label="기존 태양광">
-          <option value="all">전체</option>
-          <option value="exclude" selected>기존 태양광 제외</option>
-        </select>
+      <div id="solMode" class="seg" role="group" aria-label="기존 태양광">
+        <button type="button" data-v="all">전체</button>
+        <button type="button" data-v="exclude" class="on">기존 태양광 제외</button>
       </div>
       <details id="basis">
-        <summary>조건 <span id="basisNow"></span></summary>
-        <label>최소 추정 용량 <b id="vMinC">100kW</b>
-          <input type="range" id="minC" min="100" max="5000" step="100" value="100"></label>
-        <label>설치 가능 비율 <b id="vUtil">50%</b>
-          <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
-        <label>㎡당 설비용량 <b id="vKw">0.30kW</b>
-          <input type="range" id="kw" min="5" max="35" step="1" value="30"></label>
+        <summary><b>조건</b><span id="basisNow"></span></summary>
+        <div class="sliders">
+          <label><span>최소 추정 용량</span><b id="vMinC">100kW</b>
+            <input type="range" id="minC" min="100" max="5000" step="100" value="100"></label>
+          <label><span>설치 가능 비율</span><b id="vUtil">50%</b>
+            <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
+          <label><span>㎡당 설비용량</span><b id="vKw">0.30kW</b>
+            <input type="range" id="kw" min="5" max="35" step="1" value="30"></label>
+        </div>
       </details>
     </div>
 
@@ -54,17 +52,17 @@
 
   <main>
     <div id="map"></div>
-    <div id="basemap" role="group" aria-label="배경">
-      <button data-base="base" class="on">지도</button>
-      <button data-base="sat">항공사진</button>
+    <div id="basemap" class="seg float" role="group" aria-label="배경">
+      <button type="button" data-base="base" class="on">지도</button>
+      <button type="button" data-base="sat">항공사진</button>
     </div>
-    <div id="legend">
+    <div id="legend" class="float">
       <span><i class="c1"></i>후보</span>
       <span><i class="c2"></i>기존 태양광</span>
     </div>
-    <button id="toggleSide">목록</button>
+    <button id="toggleSide" class="float" type="button">목록</button>
   </main>
 </div>
-<script defer src="app.js?v=20261118j"></script>
+<script defer src="app.js?v=20261118p"></script>
 </body>
 </html>
