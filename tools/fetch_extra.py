@@ -21,8 +21,12 @@ LOTS_PER_GROUP = 3        # 묶음마다 큰 건물부터 지번 몇 곳까지 �
 
 def key(name): return open(os.path.join(KEYS, name)).read().strip()
 
+NEW2OLD = {v: k for k, v in {'29110': '12210', '29140': '12240', '29155': '12270', '29170': '12300', '29200': '12330', '46110': '12110', '46130': '12130', '46150': '12150',
+           '46170': '12170', '46230': '12190', '46710': '12710', '46720': '12720', '46730': '12730', '46770': '12740', '46780': '12750', '46790': '12760',
+           '46800': '12770', '46810': '12780', '46820': '12790', '46830': '12800', '46840': '12810', '46860': '12820', '46870': '12830', '46880': '12840',
+           '46890': '12850', '46900': '12860', '46910': '12870'}.items()}      # 전남광주: 건물 원자료는 옛 코드 이름으로 있다(build_data.py OLD2NEW 와 같게)
 def cand_file(code):
-    for p in (os.path.join(SPLIT, code + '.jsonl'), os.path.join(CAND, code + '.jsonl')):
+    for p in (os.path.join(SPLIT, code + '.jsonl'), os.path.join(CAND, code + '.jsonl'), os.path.join(CAND, NEW2OLD.get(code, code) + '.jsonl')):
         if os.path.exists(p): return p
     return None
 
@@ -63,7 +67,9 @@ def get(url, params, tries=6):
             req = urllib.request.Request(url + '?' + q, headers={'User-Agent': 'Mozilla/5.0', 'Accept': '*/*'})   # 한전 서버는 파이썬 기본 접속을 404로 막는다
             with urllib.request.urlopen(req, timeout=30) as r: txt = r.read().decode('utf-8', 'ignore')
             try: return json.loads(txt)
-            except ValueError: raise Stop('응답이 JSON 이 아님(하루 한도 초과일 수 있음): ' + txt[:200])
+            except ValueError:
+                if i == tries - 1: raise Stop('응답이 JSON 이 아님(하루 한도 초과일 수 있음): ' + txt[:200])
+                time.sleep(10)
         except Stop: raise
         except urllib.error.HTTPError as e:
             if e.code == 404: return None          # 한전은 맞는 주소가 없으면 404 를 준다
@@ -100,12 +106,13 @@ def fetch_br(lot, k):
 def fetch_grid(bjd, emd, ri, k):
     """리(도시는 동) 하나의 배전선로 목록. 저장: 계통/<법정동코드>.json"""
     p = os.path.join(GR, bjd + '.json')
-    if os.path.exists(p): return False
+    if os.path.exists(p) and not (bjd[:5] in NEW2OLD and not json.load(open(p, encoding='utf-8'))['rows']): return False
+    sg = NEW2OLD.get(bjd[:5], bjd[:5])      # 한전은 전남광주를 옛 코드(전남 46, 광주 29)로 받는다
     # 읍으로 승격된 곳은 한전 자료에 옛 이름(면)으로 남아 있기도 해서 바꿔 가며 찾는다
     names = [emd] + ([emd[:-1] + '면'] if emd.endswith('읍') else [emd[:-1] + '읍'] if emd.endswith('면') else [])
     rows = []
     for nm in names:
-        prm = {'metroCd': bjd[:2], 'cityCd': bjd[2:5], 'addrLidong': nm, 'apiKey': k, 'returnType': 'json'}
+        prm = {'metroCd': sg[:2], 'cityCd': sg[2:5], 'addrLidong': nm, 'apiKey': k, 'returnType': 'json'}
         if ri: prm['addrLi'] = ri
         r = get('https://bigdata.kepco.co.kr/openapi/v1/dispersedGeneration.do', prm)
         if r is None: continue
@@ -131,6 +138,7 @@ def main():
         st['묶음'] += len(T); st['지번 찾음'] += sum(1 for v in T.values() if any(J.get(rk) for rk in v[:LOTS_PER_GROUP]))
         try:
             for bjd, (emd, ri) in grids.items(): st['계통 받음'] += fetch_grid(bjd, emd, ri, kg)
+            if os.environ.get('GRID_ONLY'): lots = {}      # 계통만 먼저 받을 때
             with ThreadPoolExecutor(2) as ex: st['대장 받음'] += sum(ex.map(lambda lot: fetch_br(lot, kb), list(lots)))
         except Stop as e:
             print('멈춤:', e, dict(st), flush=True); return
