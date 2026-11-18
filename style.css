@@ -1,21 +1,23 @@
 /* ===== 디자인 값: 색·글자·높이·모서리·그림자는 여기서만 정한다 ===== */
 :root{
-  --bg:#f4f5f7; --surface:#fff; --hover:#f8f9fa;
-  --line:#e5e7eb; --line-2:#d1d5db;
-  --ink:#111827; --ink-2:#4b5563; --ink-3:#9ca3af;
-  --pri:#0f766e; --pri-weak:#e9f4f2;            /* 후보(청록) — 지도 색과 같음 */
+  /* Pipe-Line(배관 영업 GIS)과 같은 기준값: 무채색 바탕 + 먹색 하나, 모서리 4/6px, 글자 11/12/13/15 */
+  --bg:#eceef1; --surface:#fff; --hover:#f6f7f8;
+  --line:#e5e7ea; --line-2:#d3d7dc;
+  --ink:#15181d; --ink-2:#3b4149; --ink-3:#767e88;
+  --accent:#1c232d; --accent-soft:#e8ecf2; --focus:#2f6fdf;   /* 먹색 = 선택·주 버튼 */
+  --pri:#0f766e;                                 /* 후보(청록) — 지도 건물 색, 범례에만 */
   --red:#d13b31; --red-ink:#b42318; --red-weak:#fdeceb;   /* 기존 태양광(빨강) */
-  --fs-xs:11px; --fs-sm:12px; --fs:13px; --fs-md:14px; --fs-lg:16px;
-  --h:36px; --r-sm:6px; --r:8px; --r-lg:12px;
-  --shadow:0 1px 2px rgba(17,24,39,.06),0 2px 6px rgba(17,24,39,.08);
-  --shadow-lg:0 6px 24px rgba(17,24,39,.16);
+  --fs-xs:11px; --fs-sm:12px; --fs:13px; --fs-md:13px; --fs-lg:15px;
+  --h:30px; --r-sm:4px; --r:4px; --r-lg:6px;
+  --shadow:0 1px 2px rgba(15,20,28,.10),0 2px 6px rgba(15,20,28,.06);
+  --shadow-lg:0 10px 30px rgba(15,20,28,.22);
   --chev:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;font-size:var(--fs-md);line-height:1.4;color:var(--ink);background:var(--bg);-webkit-font-smoothing:antialiased}
 button,select,input{font:inherit;color:inherit}
 button{cursor:pointer}
-:focus-visible{outline:2px solid var(--pri);outline-offset:1px}
+:focus-visible{outline:2px solid var(--focus);outline-offset:1px}
 .maplibregl-map,.maplibregl-ctrl-attrib{font-family:inherit}
 #app{display:flex;height:100dvh}
 
@@ -29,7 +31,7 @@ h1{margin:0;font-size:var(--fs-lg);font-weight:700;letter-spacing:-.2px}
 /* 입력칸(선택·검색) 공통 */
 .field{display:block;width:100%;min-width:0;height:var(--h);padding:0 10px;border:1px solid var(--line-2);border-radius:var(--r);background-color:var(--surface);font-size:var(--fs);transition:border-color .12s,box-shadow .12s}
 .field:hover{border-color:var(--ink-3)}
-.field:focus{outline:none;border-color:var(--pri);box-shadow:0 0 0 3px var(--pri-weak)}
+.field:focus{outline:none;border-color:var(--focus);box-shadow:0 0 0 2px rgba(47,111,223,.18)}
 .field:disabled{background-color:var(--bg);border-color:var(--line);color:var(--ink-3);cursor:default}
 select.field{-webkit-appearance:none;appearance:none;padding-right:26px;background-image:var(--chev);background-repeat:no-repeat;background-position:right 8px center;background-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer}
 select.field:disabled{cursor:default}
@@ -43,14 +45,14 @@ select.field:disabled{cursor:default}
 
 /* 두 칸 버튼(기존 태양광, 지도/항공사진) 공통 */
 .seg{display:flex;gap:2px;padding:2px;background:var(--bg);border:1px solid var(--line);border-radius:var(--r)}
-.seg button{flex:1;height:30px;padding:0 12px;border:0;border-radius:var(--r-sm);background:none;font-size:var(--fs);color:var(--ink-2);white-space:nowrap}
+.seg button{flex:1;height:24px;padding:0 12px;border:0;border-radius:var(--r-sm);background:none;font-size:var(--fs);color:var(--ink-2);white-space:nowrap}
 .seg button:hover{color:var(--ink)}
-.seg button.on{background:var(--surface);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(17,24,39,.14)}
+.seg button.on{background:var(--accent);color:#fff;font-weight:600}
 
 /* 검색 제안(지역 이동) */
 #hits{position:absolute;left:0;right:0;top:calc(100% + 4px);z-index:5;margin:0;padding:4px;list-style:none;max-height:320px;overflow:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow-lg)}
 #hits li{display:grid;grid-template-columns:1fr auto;gap:1px 8px;padding:7px 8px;border-radius:var(--r-sm);cursor:pointer}
-#hits li:hover,#hits li.act{background:var(--pri-weak)}
+#hits li:hover,#hits li.act{background:var(--accent-soft)}
 #hits b{font-size:var(--fs);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #hits em{font-style:normal;font-size:var(--fs-sm);color:var(--ink-2);font-variant-numeric:tabular-nums;white-space:nowrap}
 #hits small{grid-column:1/3;font-size:var(--fs-sm);color:var(--ink-3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -69,14 +71,13 @@ select.field:disabled{cursor:default}
 .sliders{display:flex;flex-direction:column;gap:10px;padding:8px 0 4px}
 .sliders label{display:grid;grid-template-columns:1fr auto;align-items:center;row-gap:2px;color:var(--ink-2)}
 .sliders b{font-weight:600;color:var(--ink);font-variant-numeric:tabular-nums}
-.sliders input{grid-column:1/3;width:100%;height:20px;margin:0;accent-color:var(--pri);cursor:pointer}
+.sliders input{grid-column:1/3;width:100%;height:20px;margin:0;accent-color:var(--accent);cursor:pointer}
 
 /* ===== 목록 ===== */
 #list{flex:1;min-height:0;overflow:auto;margin:0;padding:0 0 16px;list-style:none}
-#list li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:2px;padding:10px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+#list li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:1px;padding:8px 16px;border-bottom:1px solid var(--line);cursor:pointer}
 #list li:hover{background:var(--hover)}
-#list li.sel{background:var(--pri-weak)}
-#list li.sel::before{content:"";position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--pri)}
+#list li.sel{background:var(--accent-soft)}
 #list .nm{min-width:0;font-size:var(--fs-md);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #list .cap{font-size:var(--fs-md);font-weight:700;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
 #list .cap small{margin-left:2px;font-size:var(--fs-xs);font-weight:400;color:var(--ink-3)}
@@ -87,7 +88,7 @@ select.field:disabled{cursor:default}
 #list li.msg{display:block;padding:32px 16px;border:0;text-align:center;font-size:var(--fs);color:var(--ink-3);cursor:default}
 #list li.msg:hover{background:none}
 #list li.msg.sub{padding:16px 16px 6px;text-align:left;font-size:var(--fs-sm);font-weight:600;color:var(--ink-2);background:var(--bg)}
-.btn{display:inline-flex;align-items:center;height:32px;margin-top:10px;padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface);font-size:var(--fs);font-weight:600}
+.btn{display:inline-flex;align-items:center;height:30px;margin-top:10px;padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface);font-size:var(--fs);font-weight:600}
 .btn:hover{background:var(--hover)}
 
 /* ===== 지도 위 ===== */
@@ -101,13 +102,13 @@ main{flex:1;position:relative;min-width:0}
 #legend i{width:10px;height:10px;border-radius:2px}
 .c1{background:var(--pri)}.c2{background:var(--red)}
 .maplibregl-ctrl-group{border:1px solid var(--line);border-radius:var(--r)!important;box-shadow:var(--shadow)!important}
-.maplibregl-ctrl-group button{width:32px;height:32px}
+.maplibregl-ctrl-group button{width:30px;height:30px}
 .maplibregl-ctrl-attrib{font-size:10px}
 #toggleSide{display:none}
 body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
 
 /* ===== 건물 팝업: 머리(이름·용량·번호)는 고정, 아래 표만 스크롤 ===== */
-.card .maplibregl-popup-content{display:flex;flex-direction:column;width:280px;max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);font-family:inherit}
+.card .maplibregl-popup-content{display:flex;flex-direction:column;width:300px;max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);font-family:inherit}
 .card.maplibregl-popup{z-index:3}
 .card .maplibregl-popup-tip{display:none}
 .card .maplibregl-popup-close-button{top:8px;right:8px;width:28px;height:28px;border-radius:var(--r-sm);font-size:18px;line-height:1;color:var(--ink-3)}
@@ -117,8 +118,8 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
 .card .ad{font-size:var(--fs-sm);color:var(--ink-2)}
 .card .kv{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:10px}
 .card .kv span:first-child{display:block;font-size:var(--fs-sm);color:var(--ink-3)}
-.card .cap b{font-size:24px;font-weight:700;line-height:1.1;letter-spacing:-.4px;color:var(--pri);font-variant-numeric:tabular-nums}
-.card .cap small{margin-left:3px;font-size:var(--fs);font-weight:600;color:var(--pri)}
+.card .cap b{font-size:22px;font-weight:700;line-height:1.1;letter-spacing:-.4px;color:var(--ink);font-variant-numeric:tabular-nums}
+.card .cap small{margin-left:3px;font-size:var(--fs);font-weight:600;color:var(--ink-2)}
 .card .tel{text-align:right;font-size:var(--fs-md);font-weight:600;font-variant-numeric:tabular-nums;line-height:1.3}
 .card .tel em{font-style:normal;font-weight:400;color:var(--ink-3)}
 .card .body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain;padding:2px 16px 10px}
@@ -148,7 +149,7 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
 
 /* ===== 폰 ===== */
 @media (max-width:760px){
-  #side{position:fixed;left:0;right:0;bottom:0;width:auto;height:58dvh;overflow:auto;overscroll-behavior:contain;border-right:0;border-top:1px solid var(--line);border-radius:14px 14px 0 0;box-shadow:0 -4px 16px rgba(17,24,39,.12);transition:transform .2s ease;padding-bottom:env(safe-area-inset-bottom)}
+  #side{position:fixed;left:0;right:0;bottom:0;width:auto;height:58dvh;overflow:auto;overscroll-behavior:contain;border-right:0;border-top:1px solid var(--line);border-radius:6px 6px 0 0;box-shadow:0 -4px 16px rgba(15,20,28,.12);transition:transform .2s ease;padding-bottom:env(safe-area-inset-bottom)}
   #side.hide{transform:translateY(calc(100% + 8px))}
   #list{flex:none;overflow:visible}   /* 폰은 패널 전체가 한 번에 스크롤된다(조건을 펼쳐도 목록이 보이게) */
   #grip{position:sticky;top:0;z-index:4;display:flex;align-items:center;justify-content:center;flex:none;width:100%;height:32px;padding:0;border:0;background:var(--surface)}   /* 목록을 내려도 손잡이는 위에 붙어 있다 */
@@ -172,10 +173,4 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
   #basemap{top:max(12px,env(safe-area-inset-top))}
   #toggleSide{display:flex;align-items:center;top:max(12px,env(safe-area-inset-top));right:12px;height:40px;padding:0 14px;font-size:var(--fs);font-weight:600;color:var(--ink)}
   #side:not(.hide) + main #toggleSide{display:none}
-}
-
-/* ===== PC: 패널·팝업·지도 위 버튼을 125%로 (지도 자체는 그대로) ===== */
-@media (min-width:761px){
-  #side,.float,.maplibregl-ctrl-group{zoom:1.25}
-  .card .maplibregl-popup-content{zoom:1.25;max-height:calc((100dvh - 48px) / 1.25)}
 }

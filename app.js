@@ -263,7 +263,7 @@ async function select(g) {
   const b = bounds(g), m = mobile();
   if (m) $('side').classList.add('hide');
   // 팝업은 건물 바로 옆(PC는 오른쪽, 폰은 아래)에 붙인다
-  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 64, bottom: $('map').offsetHeight * 0.6, left: 24, right: 24 } : { top: 70, bottom: 70, left: 70, right: 420 }, maxZoom: 17.5, duration: 500 });
+  map.fitBounds([[b[0], b[1]], [b[2], b[3]]], { padding: m ? { top: 64, bottom: $('map').offsetHeight * 0.6, left: 24, right: 24 } : { top: 70, bottom: 70, left: 70, right: 340 }, maxZoom: 17.5, duration: 500 });
   if (popup) { popup.off('close', onPopupClose); popup.remove(); }
   popup = new maplibregl.Popup({ className: 'card', closeOnClick: false, focusAfterOpen: false, maxWidth: 'none', anchor: m ? 'top' : 'left', offset: 12 })
     .setLngLat(m ? [(b[0] + b[2]) / 2, b[1]] : [b[2], (b[1] + b[3]) / 2]).setHTML('').addTo(map);
