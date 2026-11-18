@@ -75,11 +75,12 @@ select.field:disabled{cursor:default}
 
 /* ===== 목록 ===== */
 #list{flex:1;min-height:0;overflow:auto;margin:0;padding:0 0 16px;list-style:none}
-#list li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;row-gap:1px;padding:8px 16px;border-bottom:1px solid var(--line);cursor:pointer}
+#list li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;min-height:34px;padding:0 16px;border-bottom:1px solid var(--line);cursor:pointer}
 #list li:hover{background:var(--hover)}
 #list li.sel{background:var(--accent-soft)}
 #list .nm{min-width:0;font-size:var(--fs-md);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #list .cap{font-size:var(--fs-md);font-weight:700;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#list .dot{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:1px;background:var(--red);vertical-align:1px}
 #list .cap small{margin-left:2px;font-size:var(--fs-xs);font-weight:400;color:var(--ink-3)}
 #list .ad{grid-column:1/3;min-height:1.4em;min-width:0;font-size:var(--fs-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #list li.out{opacity:.6}
@@ -105,7 +106,7 @@ main{flex:1;position:relative;min-width:0}
 .maplibregl-ctrl-group button{width:30px;height:30px}
 .maplibregl-ctrl-attrib{font-size:10px}
 #toggleSide{display:none}
-body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
+body.nation #legend{display:none}
 
 /* ===== 건물 팝업: 머리(이름·용량·번호)는 고정, 아래 표만 스크롤 ===== */
 .card .maplibregl-popup-content{display:flex;flex-direction:column;width:300px;max-height:calc(100dvh - 48px);padding:0;border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow-lg);font-family:inherit}
@@ -167,7 +168,7 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
   .card .maplibregl-popup-close-button{width:32px;height:32px;top:6px;right:6px}
   .card .maplibregl-popup-content{max-height:56dvh;width:min(calc(100vw - 24px),360px)}
   .card .fold summary{height:40px}
-  #list li{padding:10px 12px}
+  #list li{min-height:44px;padding:0 12px}
   main{height:100dvh;flex:none;width:100%}
   #legend{display:none}
   #basemap{top:max(12px,env(safe-area-inset-top))}

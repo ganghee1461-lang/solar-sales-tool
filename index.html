@@ -10,7 +10,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;600;700&display=swap" rel="stylesheet">
 <link href="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.css" rel="stylesheet">
 <script defer src="https://unpkg.com/maplibre-gl@4.0.0/dist/maplibre-gl.js"></script>
-<link rel="stylesheet" href="style.css?v=20261119b">
+<link rel="stylesheet" href="style.css?v=20261119e">
 </head>
 <body>
 <div id="app">
@@ -30,21 +30,6 @@
         <input type="search" id="q" class="field" placeholder="검색" aria-label="검색" autocomplete="off">
         <ul id="hits" hidden></ul>
       </div>
-      <div id="solMode" class="seg" role="group" aria-label="기존 태양광">
-        <button type="button" data-v="all">전체</button>
-        <button type="button" data-v="exclude" class="on">기존 태양광 제외</button>
-      </div>
-      <details id="basis">
-        <summary><b>조건</b><span id="basisNow"></span></summary>
-        <div class="sliders">
-          <label><span>최소 추정 용량</span><b id="vMinC">100kW</b>
-            <input type="range" id="minC" min="100" max="5000" step="100" value="100"></label>
-          <label><span>설치 가능 비율</span><b id="vUtil">50%</b>
-            <input type="range" id="util" min="20" max="90" step="5" value="50"></label>
-          <label><span>㎡당 설비용량</span><b id="vKw">0.30kW</b>
-            <input type="range" id="kw" min="5" max="35" step="1" value="30"></label>
-        </div>
-      </details>
     </div>
 
     <ol id="list"></ol>
@@ -63,6 +48,6 @@
     <button id="toggleSide" class="float" type="button">목록</button>
   </main>
 </div>
-<script defer src="app.js?v=20261119b"></script>
+<script defer src="app.js?v=20261119e"></script>
 </body>
 </html>
