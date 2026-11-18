@@ -133,7 +133,7 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
 .card dd.off{font-weight:400;color:var(--ink-3)}
 .card dd.red{color:var(--red-ink)}
 .card dd .red{color:var(--red-ink);font-weight:600}
-.card dd small span{display:inline-block}
+.card dd small span,.card dd .nb{display:inline-block}
 .card .fold{margin-top:6px;border-top:1px solid var(--line-2)}
 .card .fold summary{display:flex;align-items:center;height:32px;list-style:none;cursor:pointer;font-size:var(--fs-sm);font-weight:600;color:var(--ink-2)}
 .card .fold summary::-webkit-details-marker{display:none}
@@ -164,7 +164,7 @@ body.nation #solMode,body.nation #basis,body.nation #legend{display:none}
   .sliders input{height:28px}
   .tip{width:22px;height:22px}
   .card .maplibregl-popup-close-button{width:32px;height:32px;top:6px;right:6px}
-  .card .maplibregl-popup-content{max-height:56dvh;width:272px}
+  .card .maplibregl-popup-content{max-height:56dvh;width:min(calc(100vw - 24px),360px)}
   .card .fold summary{height:40px}
   #list li{padding:10px 12px}
   main{height:100dvh;flex:none;width:100%}

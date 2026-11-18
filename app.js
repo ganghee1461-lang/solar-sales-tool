@@ -197,7 +197,7 @@ function card(g) {
     grid = `<dt>계통 여유</dt><dd${mx > 0 ? '' : ' class="red"'}>${mx > 0 ? '최대 ' + mw(mx) : '없음'}${tipBtn(src, '계통 출처')}<small>${esc(subs)} 변전소<br>선로 ${L.length}개 중 ${ok}개 여유</small></dd>`;
     lines = row('선로별', L.slice(0, 6).map(x => `${esc(x.dl)} ${x.v > 0 ? mw(x.v) : '없음'}`).join('<br>') + (L.length > 6 ? `<br>외 ${L.length - 6}개` : ''));
   }
-  const bld = B ? `<dt>건물</dt><dd>${esc([B.y ? B.y + '년' : '', B.st || ''].filter(Boolean).join(' · ') || '-')}<small>${B.rf ? `<span>지붕 ${esc(B.rf)}</span>` : ''}${B.sl ? `${B.rf ? '<br>' : ''}<span class="red">슬레이트 ${B.sl}동</span>` : ''}</small></dd>` : '';
+  const bld = B ? `<dt>건물</dt><dd>${[B.y ? B.y + '년' : '', B.st || ''].filter(Boolean).map(x => `<span class="nb">${esc(x)}</span>`).join(' · ') || '-'}<small>${B.rf ? `<span>지붕 ${esc(B.rf)}</span>` : ''}${B.sl ? `${B.rf ? '<br>' : ''}<span class="red">슬레이트 ${B.sl}동</span>` : ''}</small></dd>` : '';
   const pr = F.pr || '', PR = 40;   // 생산품은 40자에서 자르고 누르면 전체
   const free = F.land > g.at ? F.land - g.at : 0;   // 부지에서 건물 지붕을 뺀 면적(대략)
   const reg = F.up || F.sz || F.ip;   // 공장등록과 맞은 회사인지
