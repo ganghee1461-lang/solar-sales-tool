@@ -251,7 +251,7 @@ def extra_of(bs, jb, grids):
         if os.path.exists(p):
             d = json.load(open(p, encoding='utf-8')); u = {}
             for r in d['rows']: u[(r['substNm'], r['mtrNo'], r['dlNm'])] = [r['substNm'], str(r['mtrNo']), r['dlNm'], int(r['vol1']), int(r['vol2']), int(r['vol3'])]
-            if u: g = {'d': d['day'], 'l': list(u.values())}      # l = [변전소, 주변압기 번호, 선로, 변전소 여유, 주변압기 여유, 선로 여유(kW)]
+            if u: g = {'d': d['day'], 'n': (js[0][4] + ' ' + js[0][5]).strip(), 'l': list(u.values())}      # n = 조회한 읍면동·리 이름      # l = [변전소, 주변압기 번호, 선로, 변전소 여유, 주변압기 여유, 선로 여유(kW)]
         grids[kb] = g
     return b, kb if grids[kb] else None
 

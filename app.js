@@ -189,8 +189,8 @@ function card(g) {
   if (K) {
     const L = K.l.map(r => ({ s: r[0], dl: r[2], v: Math.max(0, Math.min(r[3], r[4], r[5])) })).sort((x, y) => y.v - x.v);
     const mx = L[0].v, ok = L.filter(x => x.v > 0).length, subs = [...new Set(L.map(x => x.s))].join(', ');
-    const src = `한전 분산전원 연계정보\n${K.d} 조회 · 리(동) 단위`;
-    grid = `<dt>계통 여유</dt><dd${mx > 0 ? '' : ' class="red"'}>${mx > 0 ? '최대 ' + mw(mx) : '없음'}${tipBtn(src, '계통 출처')}<small>${esc(subs)} 변전소<br>선로 ${L.length}개 중 ${ok}개 여유</small></dd>`;
+    const src = `한전 분산전원 연계정보\n${K.n ? K.n + ' · ' : ''}${K.d} 조회`;
+    grid = `<dt>계통 여유</dt><dd${mx > 0 ? '' : ' class="red"'}>${mx > 0 ? '최대 ' + mw(mx) : '없음'}${tipBtn(src, '계통 출처')}<small>${esc(subs)} 변전소<br>${K.n ? esc(K.n) + ' ' : ''}선로 ${L.length}개 중 ${ok}개 여유</small></dd>`;
     lines = row('선로별', L.slice(0, 6).map(x => `${esc(x.dl)} ${x.v > 0 ? mw(x.v) : '없음'}`).join('<br>') + (L.length > 6 ? `<br>외 ${L.length - 6}개` : ''));
   }
   const bld = B ? `<dt>건물</dt><dd>${[B.y ? B.y + '년' : '', B.st || ''].filter(Boolean).map(x => `<span class="nb">${esc(x)}</span>`).join(' · ') || '-'}<small>${B.rf ? `<span>지붕 ${esc(B.rf)}</span>` : ''}${B.sl ? `${B.rf ? '<br>' : ''}<span class="red">슬레이트 ${B.sl}동</span>` : ''}</small></dd>` : '';
