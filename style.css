@@ -1,7 +1,8 @@
 :root{--bg:#f4f6f8;--card:#fff;--line:#e4e7ec;--ink:#101828;--sub:#667085;--pri:#0b7a6b;--pri-soft:#e3f3f0;--c1:#0b7a6b;--c2:#d92d20;--c3:#f79009}
 *{box-sizing:border-box}
-html,body{margin:0;height:100%;font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:var(--ink);background:var(--bg);font-size:14px;-webkit-font-smoothing:antialiased}
+html,body{margin:0;height:100%;font-family:"Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;color:var(--ink);background:var(--bg);font-size:14px;-webkit-font-smoothing:antialiased}
 button,select,input{font:inherit;color:inherit}
+.maplibregl-map,.maplibregl-ctrl-attrib{font-family:inherit}
 #app{display:flex;height:100dvh}
 
 /* 왼쪽 패널 */
