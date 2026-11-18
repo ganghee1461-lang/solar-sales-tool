@@ -130,9 +130,9 @@ const sidoRows = () => [...new Set(regions.map(r => r.sido))].map(s => { const p
 function apply() {
   if (region && region.nation) {
     view = []; const rows = sidoRows();
-    $('list').innerHTML = rows.map(r => `
+    $('list').innerHTML = '<li class="head"><span>광역</span><span>회사 수</span></li>' + rows.map(r => `
       <li data-sido="${esc('S:' + r.s)}" class="sido">
-        <span class="nm">${esc(sshort(r.s))}</span><span class="cap">${num(r.n)}<small>곳</small></span>
+        <span class="nm">${esc(sshort(r.s))}</span><span class="cap">${num(r.n)}</span>
       </li>`).join('');
     drawMap(); return;
   }
@@ -150,17 +150,17 @@ function drawList() {
   // 검색 중이면 조건(용량 기준 등) 때문에 빠진 회사도 아래에 흐리게 보여준다
   const shown = new Set(view.map(g => g.id));
   const outs = f.q ? groups.filter(g => !shown.has(g.id) && (!f.emd || g.sub === f.emd) && hitQ(g)).sort((a, b) => b.a - a.a).slice(0, 30) : [];
-  $('list').innerHTML = view.slice(0, LIST_MAX).map(g => `
+  $('list').innerHTML = (view.length ? `<li class="head"><span>${num(view.length)}곳</span><span>추정 용량 kW</span></li>` : '') + view.slice(0, LIST_MAX).map(g => `
     <li data-id="${g.id}"${selected && selected.id === g.id ? ' class="sel"' : ''}>
       <span class="nm">${esc(gname(g))}${g.st !== 'none' ? '<i class="dot" title="기존 태양광"></i>' : ''}</span>
-      <span class="cap">${num(g._cap)}<small>kW</small></span>
+      <span class="cap">${num(g._cap)}</span>
     </li>`).join('')
     + (view.length > LIST_MAX ? `<li class="msg">${LIST_MAX} / ${num(view.length)}곳</li>` : '')
     + (view.length ? '' : '<li class="msg">결과 없음</li>')
     + (outs.length ? '<li class="msg sub">조건 밖</li>' + outs.map(g => `
     <li data-id="${g.id}" class="out${selected && selected.id === g.id ? ' sel' : ''}">
       <span class="nm">${esc(gname(g))}${g.st !== 'none' ? '<i class="dot" title="기존 태양광"></i>' : ''}</span>
-      <span class="cap">${num(g._cap)}<small>kW</small></span>
+      <span class="cap">${num(g._cap)}</span>
     </li>`).join('') : '');
 }
 document.addEventListener('click', e => {

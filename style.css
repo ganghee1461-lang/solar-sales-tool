@@ -75,19 +75,20 @@ select.field:disabled{cursor:default}
 
 /* ===== 목록 ===== */
 #list{flex:1;min-height:0;overflow:auto;margin:0;padding:0 0 16px;list-style:none}
-#list li{position:relative;display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:12px;align-items:center;min-height:34px;padding:0 16px;border-bottom:1px solid var(--line);cursor:pointer}
+#list li{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:center;height:40px;padding:0 16px;cursor:pointer}
 #list li:hover{background:var(--hover)}
 #list li.sel{background:var(--accent-soft)}
-#list .nm{min-width:0;font-size:var(--fs-md);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#list .cap{font-size:var(--fs-md);font-weight:700;text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
-#list .dot{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:1px;background:var(--red);vertical-align:1px}
-#list .cap small{margin-left:2px;font-size:var(--fs-xs);font-weight:400;color:var(--ink-3)}
-#list .ad{grid-column:1/3;min-height:1.4em;min-width:0;font-size:var(--fs-sm);color:var(--ink-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#list li.head{position:sticky;top:0;z-index:1;height:32px;border-bottom:1px solid var(--line);background:var(--surface);font-size:var(--fs-xs);color:var(--ink-3);cursor:default}
+#list .nm{min-width:0;font-size:var(--fs-md);font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#list li.sel .nm{font-weight:700}
+#list .cap{font-size:var(--fs-md);font-weight:600;color:var(--ink-2);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+#list .dot{display:inline-block;width:6px;height:6px;margin-left:6px;border-radius:1px;background:var(--red);vertical-align:2px}
 #list li.out{opacity:.6}
 .tag{display:inline-block;margin-left:6px;padding:0 5px;border-radius:4px;font-size:var(--fs-xs);font-weight:600;line-height:18px;vertical-align:1px;background:var(--bg);color:var(--ink-2)}
 .tag.on{background:var(--red-weak);color:var(--red-ink)}
-#list li.msg{display:block;padding:32px 16px;border:0;text-align:center;font-size:var(--fs);color:var(--ink-3);cursor:default}
+#list li.msg{display:block;height:auto;padding:32px 16px;border:0;text-align:center;font-size:var(--fs);color:var(--ink-3);cursor:default}
 #list li.msg:hover{background:none}
+#list li.head:hover{background:var(--surface)}
 #list li.msg.sub{padding:16px 16px 6px;text-align:left;font-size:var(--fs-sm);font-weight:600;color:var(--ink-2);background:var(--bg)}
 .btn{display:inline-flex;align-items:center;height:30px;margin-top:10px;padding:0 14px;border:1px solid var(--line-2);border-radius:var(--r);background:var(--surface);font-size:var(--fs);font-weight:600}
 .btn:hover{background:var(--hover)}
@@ -168,7 +169,7 @@ body.nation #legend{display:none}
   .card .maplibregl-popup-close-button{width:32px;height:32px;top:6px;right:6px}
   .card .maplibregl-popup-content{max-height:56dvh;width:min(calc(100vw - 24px),360px)}
   .card .fold summary{height:40px}
-  #list li{min-height:44px;padding:0 12px}
+  #list li{padding:0 12px}
   main{height:100dvh;flex:none;width:100%}
   #legend{display:none}
   #basemap{top:max(12px,env(safe-area-inset-top))}
