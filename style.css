@@ -75,7 +75,7 @@ select.field:disabled{cursor:default}
 
 /* ===== 목록 ===== */
 #list{flex:1;min-height:0;overflow:auto;margin:0;padding:0 0 16px;list-style:none}
-#list li{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:center;height:40px;padding:0 16px;cursor:pointer}
+#list li{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:16px;align-items:center;height:44px;padding:0 16px;border-bottom:1px solid var(--line);cursor:pointer}
 #list li:hover{background:var(--hover)}
 #list li.sel{background:var(--accent-soft)}
 #list li.head{position:sticky;top:0;z-index:1;height:32px;border-bottom:1px solid var(--line);background:var(--surface);font-size:var(--fs-xs);color:var(--ink-3);cursor:default}
@@ -147,7 +147,7 @@ body.nation #legend{display:none}
 /* 출처 말풍선(이용률 i, 대표번호) */
 .tip{position:relative;display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;margin-left:4px;padding:0;border:1px solid var(--line-2);border-radius:50%;background:var(--surface);font-size:10px;font-weight:700;line-height:1;color:var(--ink-2);vertical-align:1px;cursor:help}
 .telno{position:relative;border-bottom:1px dotted var(--ink-3);cursor:help;outline:none}
-.tip:hover::after,.tip:focus::after,.telno:hover::after,.telno:focus::after{content:attr(data-tip);position:absolute;right:-6px;bottom:calc(100% + 6px);z-index:9;width:220px;padding:7px 9px;border-radius:var(--r-sm);background:var(--ink);color:#fff;font-size:var(--fs-xs);font-weight:400;line-height:1.5;text-align:left;white-space:normal}
+.tip:hover::after,.tip:focus::after,.telno:hover::after,.telno:focus::after{content:attr(data-tip);position:absolute;right:-6px;bottom:calc(100% + 6px);z-index:9;width:max-content;max-width:240px;padding:6px 9px;border-radius:var(--r-sm);background:var(--ink);color:#fff;font-size:var(--fs-xs);font-weight:400;line-height:1.5;text-align:left;white-space:pre-line}
 
 /* ===== 폰 ===== */
 @media (max-width:760px){

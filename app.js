@@ -177,9 +177,9 @@ $('list').addEventListener('click', e => {
 let foldOpen = false;   // 팝업 '상세'를 펼쳐 두었는지(회사를 바꿔도 유지)
 const mw = kw => num(kw / 1000, 1) + 'MW';
 function card(g) {
-  const c = meta.cf, tip = c ? `전력거래소 실적 · ${c.area} ${c.years[0]}~${c.years[c.years.length - 1]}년 평균 (${c.vals.join(', ')})` : '';
+  const c = meta.cf, tip = c ? `전력거래소 ${c.area}\n${c.years[0]}~${c.years[c.years.length - 1]}년 평균` : '';
   // 대표번호는 누르면 걸리지 않게 글자로만 두고, 마우스를 올리거나 누르면 출처가 뜬다
-  const telSrc = `출처: 전국공장등록현황(2026년 6월 말 기준) · 등록 회사 ${g.telnm || gname(g)}`;
+  const telSrc = `전국공장등록현황 2026.6\n${g.telnm || gname(g)}`;
   const ex = g.nt - g.n;   // 기존 태양광이 있는 동 수
   const F = facOf(g) || {}, ready = facReady(g), B = F.b, K = F.kb && facCache.get(g.rc)._k[F.kb];
   const row = (k, v, sub, attr) => v ? `<dt>${k}</dt><dd>${v}${sub ? `<small${attr || ''}>${sub}</small>` : ''}</dd>` : '';
@@ -189,7 +189,7 @@ function card(g) {
   if (K) {
     const L = K.l.map(r => ({ s: r[0], dl: r[2], v: Math.max(0, Math.min(r[3], r[4], r[5])) })).sort((x, y) => y.v - x.v);
     const mx = L[0].v, ok = L.filter(x => x.v > 0).length, subs = [...new Set(L.map(x => x.s))].join(', ');
-    const src = `출처: 한전 분산전원 연계정보(${K.d} 조회) · 이 리(동)를 지나는 선로 기준이라 실제 연결 선로는 한전 확인 필요 · 변전소, 주변압기, 선로 여유 중 가장 작은 값`;
+    const src = `한전 분산전원 연계정보\n${K.d} 조회 · 리(동) 단위`;
     grid = `<dt>계통 여유</dt><dd${mx > 0 ? '' : ' class="red"'}>${mx > 0 ? '최대 ' + mw(mx) : '없음'}${tipBtn(src, '계통 출처')}<small>${esc(subs)} 변전소<br>선로 ${L.length}개 중 ${ok}개 여유</small></dd>`;
     lines = row('선로별', L.slice(0, 6).map(x => `${esc(x.dl)} ${x.v > 0 ? mw(x.v) : '없음'}`).join('<br>') + (L.length > 6 ? `<br>외 ${L.length - 6}개` : ''));
   }
